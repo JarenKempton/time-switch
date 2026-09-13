@@ -21,19 +21,18 @@ export function CompanyMark({
   size?: "sm" | "md" | "lg" | "xl";
   className?: string;
 }) {
-  const initials = company.name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
   return (
     <span
-      className={cn("company-mark", `company-mark--${size}`, className)}
+      className={cn(
+        "company-mark",
+        `company-mark--${size}`,
+        company.logoUrl ? "company-mark--logo" : "company-mark--dot",
+        className,
+      )}
       style={companyStyle(company)}
       aria-hidden="true"
     >
-      {company.logoUrl ? <img src={company.logoUrl} alt="" /> : initials}
+      {company.logoUrl ? <img src={company.logoUrl} alt="" /> : null}
     </span>
   );
 }

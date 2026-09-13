@@ -11,7 +11,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -322,9 +321,10 @@ export function History({ data }: { data: TimeClockData }) {
                       {session.endedAt ? (
                         formatTime(session.endedAt)
                       ) : (
-                        <Badge variant="outline" className="live-badge">
+                        <span className="live-chip">
+                          <i aria-hidden="true" />
                           Live
-                        </Badge>
+                        </span>
                       )}
                     </TableCell>
                     <TableCell className="text-right tabular font-semibold">

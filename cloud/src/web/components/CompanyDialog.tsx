@@ -32,8 +32,9 @@ import {
 import { timeClock, type Company } from "../api";
 import {
   cadenceLabels,
-  payPeriodWindow,
+  describeCadence,
   toDateInput,
+  upcomingPeriods,
 } from "../../lib/pay-period";
 import { formatRange } from "../format";
 import { DEFAULT_COMPANY_COLOR } from "./CompanyMark";
@@ -71,12 +72,10 @@ export function CompanyDialog({
     setAnchor(company?.payPeriodAnchorDate ?? toDateInput(new Date()));
   }, [company, open]);
 
-  const preview =
-    /^\d{4}-\d{2}-\d{2}$/.test(anchor) &&
-    payPeriodWindow(
-      { payPeriodCadence: cadence, payPeriodAnchorDate: anchor, createdAt: "" },
-      new Date(),
-    );
+  const previewCompany = /^\d{4}-\d{2}-\d{2}$/.test(anchor)
+    ? { payPeriodCadence: cadence, payPeriodAnchorDate: anchor, createdAt: "" }
+    : null;
+  const preview = previewCompany ? upcomingPeriods(previewCompany) : null;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -216,13 +215,30 @@ export function CompanyDialog({
                 />
               </div>
             </div>
-            <p className="mt-3 text-sm text-muted-foreground">
-              {cadence === "semimonthly"
-                ? "Periods always run the 1st–15th and 16th–end of month."
-                : preview
-                  ? `Current period would be ${formatRange(preview.start, preview.end)}.`
-                  : "Pick any date a period started on; the schedule repeats from there."}
-            </p>
+            {previewCompany && preview ? (
+              <div className="schedule-preview">
+                <strong>{describeCadence(previewCompany)}</strong>
+                <ol>
+                  {preview.map((window, index) => (
+                    <li key={window.start.getTime()}>
+                      <span>
+                        {index === 0
+                          ? "Current"
+                          : index === 1
+                            ? "Next"
+                            : "Then"}
+                      </span>
+                      {formatRange(window.start, window.end)}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-muted-foreground">
+                Pick any date a period started on; the schedule repeats from
+                there.
+              </p>
+            )}
           </fieldset>
 
           {company && (

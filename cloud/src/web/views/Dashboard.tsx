@@ -6,10 +6,9 @@ import {
   ReceiptTextIcon,
   SquareIcon,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cadenceLabels } from "../../lib/pay-period";
+import { describeCadence } from "../../lib/pay-period";
 import { timeClock, type Company } from "../api";
 import { CompanyMark, companyStyle } from "../components/CompanyMark";
 import { RetrieveHoursDialog } from "../components/RetrieveHoursDialog";
@@ -87,7 +86,7 @@ export function Dashboard({
                     {activeEntry && (
                       <>
                         {" · "}
-                        {formatHours(activeEntry.totalSeconds)} h this period
+                        {formatDuration(activeEntry.totalSeconds)} this period
                       </>
                     )}
                   </p>
@@ -103,7 +102,11 @@ export function Dashboard({
           )}
           <div className="hero-actions">
             {active ? (
-              <Button size="lg" variant="outline" onClick={() => void stop()}>
+              <Button
+                size="lg"
+                className="clock-out"
+                onClick={() => void stop()}
+              >
                 <SquareIcon className="fill-current" />
                 Clock out
               </Button>
@@ -188,9 +191,10 @@ export function Dashboard({
                   </span>
                 </div>
                 {!session.endedAt && (
-                  <Badge variant="outline" className="live-badge">
+                  <span className="live-chip">
+                    <i aria-hidden="true" />
                     Live
-                  </Badge>
+                  </span>
                 )}
                 <span className="tabular session-list-duration">
                   {formatDuration(sessionSeconds(session, now))}
@@ -247,14 +251,15 @@ function PeriodCard({
         <div>
           <h3>{company.name}</h3>
           <span>
-            {cadenceLabels[company.payPeriodCadence]}
+            {describeCadence(company)}
             {period.source === "custom" ? " · custom period" : ""}
           </span>
         </div>
         {isActive && (
-          <Badge variant="outline" className="live-badge">
+          <span className="live-chip">
+            <i aria-hidden="true" />
             Live
-          </Badge>
+          </span>
         )}
       </header>
 
@@ -262,6 +267,9 @@ function PeriodCard({
         <strong className="tabular">
           {entry.loaded ? formatHours(totalSeconds) : "—"}
           <small> h</small>
+          {entry.loaded && (
+            <em className="tabular">{formatDuration(totalSeconds)}</em>
+          )}
         </strong>
         <span>{formatRange(period.start, period.end)}</span>
       </div>

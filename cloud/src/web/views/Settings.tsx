@@ -4,11 +4,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { cadenceLabels, payPeriodWindow } from "../../lib/pay-period";
+import { describeCadence, upcomingPeriods } from "../../lib/pay-period";
 import type { Company } from "../api";
 import { CompanyDialog } from "../components/CompanyDialog";
 import { CompanyMark, companyStyle } from "../components/CompanyMark";
-import { formatDate, formatRange } from "../format";
+import { formatRange } from "../format";
 import type { TimeClockData } from "../use-time-clock";
 
 export function Settings({ data }: { data: TimeClockData }) {
@@ -32,8 +32,7 @@ export function Settings({ data }: { data: TimeClockData }) {
           <div>
             <h2>Companies</h2>
             <p className="section-subtitle">
-              Each company keeps its own pay-period cadence. The ID is what the
-              desk switch sends.
+              Each company keeps its own pay-period cadence.
             </p>
           </div>
           <Button onClick={() => openEditor(null)}>
@@ -56,7 +55,11 @@ export function Settings({ data }: { data: TimeClockData }) {
         {visible.length ? (
           <ul className="company-list">
             {visible.map((company) => {
-              const window = payPeriodWindow(company, new Date(now));
+              const [current, next] = upcomingPeriods(
+                company,
+                new Date(now),
+                2,
+              );
               return (
                 <li
                   key={company.id}
@@ -73,13 +76,10 @@ export function Settings({ data }: { data: TimeClockData }) {
                         </Badge>
                       )}
                     </strong>
+                    <span>{describeCadence(company)}</span>
                     <span>
-                      {cadenceLabels[company.payPeriodCadence]}
-                      {company.payPeriodCadence !== "semimonthly" &&
-                      company.payPeriodAnchorDate
-                        ? ` · anchored ${formatDate(company.payPeriodAnchorDate + "T00:00", true)}`
-                        : ""}
-                      {" · "}current {formatRange(window.start, window.end)}
+                      Current {formatRange(current.start, current.end)} · next{" "}
+                      {formatRange(next.start, next.end)}
                     </span>
                     <code>{company.id}</code>
                   </div>
@@ -105,23 +105,6 @@ export function Settings({ data }: { data: TimeClockData }) {
             </Button>
           </div>
         )}
-      </section>
-
-      <section className="section">
-        <div className="section-heading">
-          <div>
-            <h2>Desk switch</h2>
-            <p className="section-subtitle">
-              Assign a company to each switch position from the device's USB
-              console.
-            </p>
-          </div>
-        </div>
-        <pre className="console-sample">
-          {`set left_company_id  <company ID>
-set right_company_id <company ID>
-reboot`}
-        </pre>
       </section>
 
       <CompanyDialog

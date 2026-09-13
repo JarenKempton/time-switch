@@ -265,3 +265,46 @@ export function nextPeriodOptions(
   });
   return options;
 }
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function ordinal(day: number): string {
+  const mod100 = day % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${day}th`;
+  const suffix = { 1: "st", 2: "nd", 3: "rd" }[day % 10] ?? "th";
+  return `${day}${suffix}`;
+}
+
+/** Plain-language schedule, e.g. "Every 2 weeks, Mon to Sun". */
+export function describeCadence(company: CadenceCompany): string {
+  const anchor = anchorOf(company);
+  switch (company.payPeriodCadence) {
+    case "weekly":
+    case "biweekly": {
+      const first = WEEKDAYS[anchor.getDay()];
+      const last = WEEKDAYS[(anchor.getDay() + 6) % 7];
+      return `${cadenceLabels[company.payPeriodCadence]}, ${first} to ${last}`;
+    }
+    case "semimonthly":
+      return "1st to 15th, then 16th to month end";
+    case "monthly":
+      return anchor.getDate() === 1
+        ? "Monthly, calendar month"
+        : `Monthly, from the ${ordinal(anchor.getDate())}`;
+  }
+}
+
+/** The cadence window containing `reference` followed by `count - 1` more. */
+export function upcomingPeriods(
+  company: CadenceCompany,
+  reference = new Date(),
+  count = 3,
+): PayPeriodWindow[] {
+  const windows: PayPeriodWindow[] = [];
+  let window = payPeriodWindow(company, reference);
+  for (let index = 0; index < count; index += 1) {
+    windows.push(window);
+    window = payPeriodWindow(company, window.end);
+  }
+  return windows;
+}

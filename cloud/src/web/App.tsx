@@ -1,4 +1,4 @@
-import { WifiIcon, WifiOffIcon, XIcon } from "lucide-react";
+import { XIcon } from "lucide-react";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { formatClock } from "./format";
@@ -35,9 +35,6 @@ export function App() {
           className="brand"
           onClick={() => navigate("dashboard")}
         >
-          <span className="brand-switch" aria-hidden="true">
-            <i />
-          </span>
           Time Switch
         </button>
         <nav className="nav" aria-label="Sections">
@@ -67,12 +64,6 @@ export function App() {
               )}
             </button>
           )}
-          <span
-            className={`conn ${data.connected ? "is-live" : ""}`}
-            title={data.connected ? "Live updates connected" : "Reconnecting"}
-          >
-            {data.connected ? <WifiIcon /> : <WifiOffIcon />}
-          </span>
         </div>
       </header>
 
