@@ -15,6 +15,13 @@
       "when": 1789270261915,
       "tag": "0001_bitter_whirlwind",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789324088616,
+      "tag": "0002_tranquil_stranger",
+      "breakpoints": true
     }
   ]
 }

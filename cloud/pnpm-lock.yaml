@@ -19,6 +19,9 @@ importers:
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@cloudflare/workers-types@5.20260911.1)
+      hono:
+        specifier: ^4.13.7
+        version: 4.13.7
       lucide-react:
         specifier: ^1.45.0
         version: 1.45.0(react@19.3.0)

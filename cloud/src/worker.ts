@@ -1,3 +1,4 @@
+import { Hono } from "hono";
 import { authenticateDevice } from "./lib/auth";
 import { ApiError, errorResponse } from "./lib/http";
 import { TimeClock, type TimeClockEnv } from "./time-clock";
@@ -62,6 +63,33 @@ function routeLabel(path: string): string {
   );
 }
 
+type HonoEnv = { Bindings: TimeClockEnv };
+const app = new Hono<HonoEnv>();
+
+app.all("/device/*", async (context) => {
+  const request = context.req.raw;
+  if (request.method !== "POST") {
+    throw new ApiError(405, "method_not_allowed", "Method not allowed.");
+  }
+  const body = await request.text();
+  await authenticateDevice(request, body, context.env);
+  const internalRequest = new Request(request.url, {
+    method: request.method,
+    headers: {
+      "content-type": request.headers.get("content-type") ?? "application/json",
+    },
+    body,
+  });
+  return clock(context.env).fetch(internalRequest);
+});
+
+app.all("/api/*", (context) => clock(context.env).fetch(context.req.raw));
+app.all("*", (context) => context.env.ASSETS.fetch(context.req.raw));
+app.notFound(() =>
+  errorResponse(new ApiError(404, "not_found", "Route not found.")),
+);
+app.onError((error) => errorResponse(error));
+
 export default {
   async fetch(
     request: Request,
@@ -74,26 +102,8 @@ export default {
     const versionId = env.CF_VERSION_METADATA?.id ?? "local";
     let response: Response;
     try {
-      if (path.startsWith("/device/")) {
-        if (request.method !== "POST")
-          throw new ApiError(405, "method_not_allowed", "Method not allowed.");
-        const body = await request.text();
-        await authenticateDevice(request, body, env);
-        const internalRequest = new Request(request.url, {
-          method: request.method,
-          headers: {
-            "content-type":
-              request.headers.get("content-type") ?? "application/json",
-          },
-          body,
-        });
-        response = await clock(env).fetch(internalRequest);
-      } else {
-        await requireDashboardAccess(ctx);
-        response = path.startsWith("/api/")
-          ? await clock(env).fetch(request)
-          : await env.ASSETS.fetch(request);
-      }
+      if (!path.startsWith("/device/")) await requireDashboardAccess(ctx);
+      response = await app.fetch(request, env);
     } catch (error) {
       response = errorResponse(error);
     }

@@ -1,9 +1,11 @@
+import type { PayPeriodCadence } from "../db/schema";
+
 export interface Company {
   id: string;
   name: string;
   logoUrl: string | null;
   color: string | null;
-  payPeriodCadence: "weekly" | "biweekly" | "semimonthly" | "monthly";
+  payPeriodCadence: PayPeriodCadence;
   payPeriodAnchorDate: string | null;
   archived: boolean;
   createdAt: string;
@@ -32,6 +34,35 @@ export interface Summary {
   companies: Array<Company & { totalSeconds: number }>;
 }
 
+export interface CompanyHours {
+  companyId: string;
+  from: string | null;
+  to: string | null;
+  totalSeconds: number;
+  sessionCount: number;
+}
+
+export interface Retrieval {
+  id: string;
+  companyId: string;
+  periodStart: string;
+  periodEnd: string;
+  nextPeriodEnd: string;
+  totalSeconds: number;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+  company: Company;
+}
+
+export interface RetrievalInput {
+  periodStart: string;
+  periodEnd: string;
+  nextPeriodEnd: string;
+  note?: string | null;
+  reanchorDate?: string;
+}
+
 interface Envelope<T> {
   data: T;
 }
@@ -52,3 +83,68 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     );
   return body.data;
 }
+
+export function query(params: Record<string, string | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params))
+    if (value !== undefined) search.set(key, value);
+  const text = search.toString();
+  return text ? `?${text}` : "";
+}
+
+export const timeClock = {
+  companies: (includeArchived = false) =>
+    api<Company[]>(
+      `/api/v1/companies${query({ includeArchived: includeArchived ? "true" : undefined })}`,
+    ),
+  createCompany: (body: unknown) =>
+    api<Company>("/api/v1/companies", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateCompany: (id: string, body: unknown) =>
+    api<Company>(`/api/v1/companies/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  sessions: (params: Record<string, string | undefined> = {}) =>
+    api<Session[]>(`/api/v1/sessions${query(params)}`),
+  startSession: (companyId: string) =>
+    api<Session>("/api/v1/sessions", {
+      method: "POST",
+      body: JSON.stringify({ companyId, startedAt: new Date().toISOString() }),
+    }),
+  stopSession: (id: string) =>
+    api<{ session: Session; durationSeconds: number }>(
+      `/api/v1/sessions/${id}/stop`,
+      {
+        method: "POST",
+        body: JSON.stringify({ endedAt: new Date().toISOString() }),
+      },
+    ),
+  updateSession: (id: string, body: unknown) =>
+    api<Session>(`/api/v1/sessions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  status: () => api<Status>("/api/v1/status"),
+  summary: (from: Date, to: Date) =>
+    api<Summary>(
+      `/api/v1/summary${query({ from: from.toISOString(), to: to.toISOString() })}`,
+    ),
+  companyHours: (companyId: string, from: Date, to: Date) =>
+    api<CompanyHours>(
+      `/api/v1/companies/${companyId}/hours${query({ from: from.toISOString(), to: to.toISOString() })}`,
+    ),
+  retrievals: (companyId?: string) =>
+    api<Retrieval[]>(`/api/v1/retrievals${query({ companyId })}`),
+  createRetrieval: (companyId: string, body: RetrievalInput) =>
+    api<Retrieval>(`/api/v1/companies/${companyId}/retrievals`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  deleteRetrieval: (id: string) =>
+    api<{ id: string }>(`/api/v1/retrievals/${id}`, { method: "DELETE" }),
+  exportUrl: (params: Record<string, string | undefined> = {}) =>
+    `/api/v1/export.csv${query(params)}`,
+};

@@ -5,8 +5,16 @@ import {
   type DrizzleSqliteDODatabase,
 } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
+import { Hono } from "hono";
 import migrations from "../drizzle/migrations";
-import { companies, sessions, type Company, type Session } from "./db/schema";
+import {
+  companies,
+  hourRetrievals,
+  sessions,
+  type Company,
+  type HourRetrieval,
+  type Session,
+} from "./db/schema";
 import {
   ApiError,
   errorResponse,
@@ -16,6 +24,7 @@ import {
 } from "./lib/http";
 import {
   createCompanySchema,
+  createRetrievalSchema,
   deviceStartSessionSchema,
   parseDate,
   startSessionSchema,
@@ -42,7 +51,8 @@ interface LiveMessage {
     | "session.started"
     | "session.stopped"
     | "session.updated"
-    | "company.changed";
+    | "company.changed"
+    | "retrieval.changed";
   status: { activeSession: SessionWithCompany | null; serverTime: string };
   session?: SessionWithCompany;
 }
@@ -60,58 +70,101 @@ function queryNumber(
 }
 
 export class TimeClock extends DurableObject<TimeClockEnv> {
+  private readonly app = new Hono();
   private readonly db: DrizzleSqliteDODatabase<{
     companies: typeof companies;
     sessions: typeof sessions;
+    hourRetrievals: typeof hourRetrievals;
   }>;
 
   constructor(ctx: DurableObjectState, env: TimeClockEnv) {
     super(ctx, env);
     this.db = drizzle(ctx.storage, {
-      schema: { companies, sessions },
+      schema: { companies, sessions, hourRetrievals },
       logger: false,
     });
     ctx.blockConcurrencyWhile(async () => {
       await migrate(this.db, migrations);
     });
+    this.configureRoutes();
   }
 
   async fetch(request: Request): Promise<Response> {
-    try {
-      const url = new URL(request.url);
-      const path = url.pathname;
+    return await this.app.fetch(request);
+  }
 
-      if (path === "/api/v1/live") return this.openLiveSocket(request);
-      if (path === "/api/v1/status" && request.method === "GET")
-        return ok(this.getStatus());
-      if (path === "/api/v1/companies")
-        return await this.handleCompanies(request);
-      if (path.startsWith("/api/v1/companies/"))
-        return await this.handleCompany(request, path.slice(18));
-      if (path === "/api/v1/sessions")
-        return await this.handleSessions(request, url);
-      if (path.startsWith("/api/v1/sessions/"))
-        return await this.handleSession(request, path.slice(17));
-      if (path === "/api/v1/summary" && request.method === "GET")
-        return ok(this.getSummary(url));
-      if (path === "/api/v1/export.csv" && request.method === "GET")
-        return this.exportCsv(url);
-      if (path === "/device/v1/sessions/start" && request.method === "POST") {
-        return await this.handleDeviceStart(request);
-      }
-      if (path === "/device/v1/health" && request.method === "POST") {
-        return this.health();
-      }
-      const deviceStop = path.match(
-        /^\/device\/v1\/sessions\/([0-9a-f-]+)\/stop$/i,
-      );
-      if (deviceStop && request.method === "POST")
-        return await this.handleStop(request, deviceStop[1]);
-
-      return errorResponse(new ApiError(404, "not_found", "Route not found."));
-    } catch (error) {
-      return errorResponse(this.normalizeError(error));
-    }
+  private configureRoutes(): void {
+    this.app.all("/api/v1/live", (context) =>
+      this.openLiveSocket(context.req.raw),
+    );
+    this.app.all("/api/v1/status", (context) =>
+      context.req.method === "GET"
+        ? ok(this.getStatus())
+        : methodNotAllowed(["GET"]),
+    );
+    this.app.all("/api/v1/companies", (context) =>
+      this.handleCompanies(context.req.raw),
+    );
+    this.app.all("/api/v1/companies/:id", (context) =>
+      this.handleCompany(
+        context.req.raw,
+        context.req.param("id"),
+        new URL(context.req.url),
+      ),
+    );
+    this.app.all("/api/v1/companies/:id/:subresource", (context) =>
+      this.handleCompany(
+        context.req.raw,
+        `${context.req.param("id")}/${context.req.param("subresource")}`,
+        new URL(context.req.url),
+      ),
+    );
+    this.app.all("/api/v1/retrievals", (context) =>
+      context.req.method === "GET"
+        ? ok(this.listRetrievals(new URL(context.req.url)))
+        : methodNotAllowed(["GET"]),
+    );
+    this.app.all("/api/v1/retrievals/:id", (context) =>
+      this.handleRetrieval(context.req.raw, context.req.param("id")),
+    );
+    this.app.all("/api/v1/sessions", (context) =>
+      this.handleSessions(context.req.raw, new URL(context.req.url)),
+    );
+    this.app.all("/api/v1/sessions/:id", (context) =>
+      this.handleSession(context.req.raw, context.req.param("id")),
+    );
+    this.app.all("/api/v1/sessions/:id/stop", (context) =>
+      this.handleSession(context.req.raw, `${context.req.param("id")}/stop`),
+    );
+    this.app.all("/api/v1/summary", (context) =>
+      context.req.method === "GET"
+        ? ok(this.getSummary(new URL(context.req.url)))
+        : methodNotAllowed(["GET"]),
+    );
+    this.app.all("/api/v1/export.csv", (context) =>
+      context.req.method === "GET"
+        ? this.exportCsv(new URL(context.req.url))
+        : methodNotAllowed(["GET"]),
+    );
+    this.app.all("/device/v1/sessions/start", (context) =>
+      context.req.method === "POST"
+        ? this.handleDeviceStart(context.req.raw)
+        : methodNotAllowed(["POST"]),
+    );
+    this.app.all("/device/v1/sessions/:id/stop", (context) =>
+      context.req.method === "POST"
+        ? this.handleStop(context.req.raw, context.req.param("id"))
+        : methodNotAllowed(["POST"]),
+    );
+    this.app.all("/device/v1/health", (context) =>
+      context.req.method === "POST"
+        ? this.health()
+        : methodNotAllowed(["POST"]),
+    );
+    this.app.notFound(() =>
+      errorResponse(new ApiError(404, "not_found", "Route not found.")),
+    );
+    this.app.onError((error) => errorResponse(this.normalizeError(error)));
   }
 
   private handleCompanies(request: Request): Response | Promise<Response> {
@@ -149,10 +202,25 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     return ok(company, { status: 201 });
   }
 
-  private async handleCompany(request: Request, id: string): Promise<Response> {
-    if (request.method !== "PATCH") return methodNotAllowed(["PATCH"]);
+  private async handleCompany(
+    request: Request,
+    rest: string,
+    url: URL,
+  ): Promise<Response> {
+    const [id, subresource] = rest.split("/");
     if (!zUuid(id))
       throw new ApiError(400, "invalid_id", "Company ID is invalid.");
+    if (subresource === "retrievals") {
+      if (request.method !== "POST") return methodNotAllowed(["POST"]);
+      return this.createRetrieval(request, id);
+    }
+    if (subresource === "hours") {
+      if (request.method !== "GET") return methodNotAllowed(["GET"]);
+      return ok(this.getCompanyHours(id, url));
+    }
+    if (subresource !== undefined)
+      throw new ApiError(404, "not_found", "Route not found.");
+    if (request.method !== "PATCH") return methodNotAllowed(["PATCH"]);
     const input = updateCompanySchema.parse(await readJson(request));
     const existing = this.db
       .select()
@@ -276,6 +344,11 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     // checked-in Drizzle migrations were applied, without exposing ledger data.
     this.db.select({ id: companies.id }).from(companies).limit(1).all();
     this.db.select({ id: sessions.id }).from(sessions).limit(1).all();
+    this.db
+      .select({ id: hourRetrievals.id })
+      .from(hourRetrievals)
+      .limit(1)
+      .all();
     return ok({
       ok: true,
       service: "time-switch",
@@ -520,22 +593,18 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     };
   }
 
-  private getSummary(url: URL) {
-    const from = parseOptionalQueryDate(url.searchParams.get("from"), "from");
-    const to = parseOptionalQueryDate(url.searchParams.get("to"), "to");
-    if (from && to && from >= to)
-      throw new ApiError(
-        422,
-        "invalid_range",
-        "The end must be after the start.",
-      );
+  /**
+   * Seconds of work per company between two optional instants. Sessions are
+   * clipped to the range and an active session counts up to now.
+   */
+  private totalsBetween(
+    from: Date | null,
+    to: Date | null,
+    companyId?: string,
+  ): { totals: Map<string, number>; sessionCount: number } {
     const now = new Date();
-    const companyRows = this.db
-      .select()
-      .from(companies)
-      .orderBy(asc(companies.name))
-      .all();
     const conditions = [];
+    if (companyId) conditions.push(eq(sessions.companyId, companyId));
     if (from)
       conditions.push(
         or(isNull(sessions.endedAt), gt(sessions.endedAt, from))!,
@@ -547,6 +616,7 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
       .where(conditions.length ? and(...conditions) : undefined)
       .all();
     const totals = new Map<string, number>();
+    let sessionCount = 0;
     for (const session of sessionRows) {
       const start = Math.max(
         session.startedAt.getTime(),
@@ -556,12 +626,32 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
         (session.endedAt ?? now).getTime(),
         to?.getTime() ?? Number.POSITIVE_INFINITY,
       );
-      if (end > start)
+      if (end > start) {
+        sessionCount += 1;
         totals.set(
           session.companyId,
           (totals.get(session.companyId) ?? 0) + (end - start) / 1000,
         );
+      }
     }
+    return { totals, sessionCount };
+  }
+
+  private getSummary(url: URL) {
+    const from = parseOptionalQueryDate(url.searchParams.get("from"), "from");
+    const to = parseOptionalQueryDate(url.searchParams.get("to"), "to");
+    if (from && to && from >= to)
+      throw new ApiError(
+        422,
+        "invalid_range",
+        "The end must be after the start.",
+      );
+    const companyRows = this.db
+      .select()
+      .from(companies)
+      .orderBy(asc(companies.name))
+      .all();
+    const { totals } = this.totalsBetween(from, to);
     return {
       from: from?.toISOString() ?? null,
       to: to?.toISOString() ?? null,
@@ -572,6 +662,148 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
           totalSeconds: Math.floor(totals.get(company.id) ?? 0),
         })),
     };
+  }
+
+  private getCompanyHours(companyId: string, url: URL) {
+    const company = this.db
+      .select()
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .get();
+    if (!company)
+      throw new ApiError(404, "company_not_found", "Company not found.");
+    const from = parseOptionalQueryDate(url.searchParams.get("from"), "from");
+    const to = parseOptionalQueryDate(url.searchParams.get("to"), "to");
+    if (from && to && from >= to)
+      throw new ApiError(
+        422,
+        "invalid_range",
+        "The end must be after the start.",
+      );
+    const { totals, sessionCount } = this.totalsBetween(from, to, companyId);
+    return {
+      companyId,
+      from: from?.toISOString() ?? null,
+      to: to?.toISOString() ?? null,
+      totalSeconds: Math.floor(totals.get(companyId) ?? 0),
+      sessionCount,
+    };
+  }
+
+  private listRetrievals(
+    url: URL,
+  ): Array<HourRetrieval & { company: Company }> {
+    const companyId = url.searchParams.get("companyId");
+    if (companyId && !zUuid(companyId))
+      throw new ApiError(400, "invalid_company_id", "Company ID is invalid.");
+    const limit = queryNumber(url.searchParams.get("limit"), 200, 1000);
+    return this.db
+      .select({ retrieval: hourRetrievals, company: companies })
+      .from(hourRetrievals)
+      .innerJoin(companies, eq(hourRetrievals.companyId, companies.id))
+      .where(companyId ? eq(hourRetrievals.companyId, companyId) : undefined)
+      .orderBy(desc(hourRetrievals.periodEnd), desc(hourRetrievals.createdAt))
+      .limit(limit)
+      .all()
+      .map(({ retrieval, company }) => ({ ...retrieval, company }));
+  }
+
+  /**
+   * Records that hours were retrieved for a company. The retrieval closes the
+   * window [periodStart, periodEnd) and schedules the next window to end at
+   * nextPeriodEnd. The total is computed server-side from the ledger so the
+   * stored figure always matches the sessions at retrieval time.
+   */
+  private async createRetrieval(
+    request: Request,
+    companyId: string,
+  ): Promise<Response> {
+    const input = createRetrievalSchema.parse(await readJson(request));
+    const periodStart = parseDate(input.periodStart);
+    const periodEnd = parseDate(input.periodEnd);
+    const nextPeriodEnd = parseDate(input.nextPeriodEnd);
+    const result = this.db.transaction((tx) => {
+      const company = tx
+        .select()
+        .from(companies)
+        .where(eq(companies.id, companyId))
+        .get();
+      if (!company)
+        throw new ApiError(404, "company_not_found", "Company not found.");
+      const latest = tx
+        .select()
+        .from(hourRetrievals)
+        .where(eq(hourRetrievals.companyId, companyId))
+        .orderBy(desc(hourRetrievals.periodEnd))
+        .get();
+      if (latest && periodStart < latest.periodEnd) {
+        throw new ApiError(
+          409,
+          "retrieval_overlap",
+          "Those hours were already retrieved. Undo the last retrieval first.",
+        );
+      }
+      const { totals } = this.totalsBetween(periodStart, periodEnd, companyId);
+      const now = new Date();
+      const retrieval: HourRetrieval = {
+        id: crypto.randomUUID(),
+        companyId,
+        periodStart,
+        periodEnd,
+        nextPeriodEnd,
+        totalSeconds: Math.floor(totals.get(companyId) ?? 0),
+        note: input.note ?? null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      tx.insert(hourRetrievals).values(retrieval).run();
+      let updatedCompany = company;
+      if (input.reanchorDate) {
+        tx.update(companies)
+          .set({ payPeriodAnchorDate: input.reanchorDate, updatedAt: now })
+          .where(eq(companies.id, companyId))
+          .run();
+        updatedCompany = {
+          ...company,
+          payPeriodAnchorDate: input.reanchorDate,
+        };
+      }
+      return { ...retrieval, company: updatedCompany };
+    });
+    this.broadcast({ type: "retrieval.changed", status: this.getStatus() });
+    return ok(result, { status: 201 });
+  }
+
+  private handleRetrieval(request: Request, id: string): Response {
+    if (request.method !== "DELETE") return methodNotAllowed(["DELETE"]);
+    if (!zUuid(id))
+      throw new ApiError(400, "invalid_id", "Retrieval ID is invalid.");
+    const existing = this.db
+      .select()
+      .from(hourRetrievals)
+      .where(eq(hourRetrievals.id, id))
+      .get();
+    if (!existing)
+      throw new ApiError(404, "retrieval_not_found", "Retrieval not found.");
+    const newer = this.db
+      .select({ id: hourRetrievals.id })
+      .from(hourRetrievals)
+      .where(
+        and(
+          eq(hourRetrievals.companyId, existing.companyId),
+          gt(hourRetrievals.periodEnd, existing.periodEnd),
+        ),
+      )
+      .get();
+    if (newer)
+      throw new ApiError(
+        409,
+        "retrieval_not_latest",
+        "Only the most recent retrieval for a company can be undone.",
+      );
+    this.db.delete(hourRetrievals).where(eq(hourRetrievals.id, id)).run();
+    this.broadcast({ type: "retrieval.changed", status: this.getStatus() });
+    return ok({ id });
   }
 
   private exportCsv(url: URL): Response {

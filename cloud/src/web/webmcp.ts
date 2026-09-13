@@ -1,4 +1,4 @@
-import { api, type Session, type Status } from "./api";
+import { api, type CompanyHours, type Session, type Status } from "./api";
 
 interface ModelContext {
   registerTool(
@@ -32,6 +32,11 @@ function companyIdFrom(input: unknown): string {
   return input.companyId;
 }
 
+function reportRegistrationError(error: unknown): void {
+  if (error instanceof DOMException && error.name === "AbortError") return;
+  console.error(error);
+}
+
 export function registerTimeClockTools(
   onChanged: () => Promise<void>,
 ): () => void {
@@ -56,7 +61,7 @@ export function registerTimeClockTools(
       },
       options,
     ),
-  ).catch(console.error);
+  ).catch(reportRegistrationError);
 
   void Promise.resolve(
     context.registerTool(
@@ -89,7 +94,7 @@ export function registerTimeClockTools(
       },
       options,
     ),
-  ).catch(console.error);
+  ).catch(reportRegistrationError);
 
   void Promise.resolve(
     context.registerTool(
@@ -122,7 +127,41 @@ export function registerTimeClockTools(
       },
       options,
     ),
-  ).catch(console.error);
+  ).catch(reportRegistrationError);
+
+  void Promise.resolve(
+    context.registerTool(
+      {
+        name: "get_company_hours",
+        title: "Get company hours",
+        description:
+          "Total worked seconds for one company between two ISO instants. Omit the range for all time.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            companyId: { type: "string", format: "uuid" },
+            from: { type: "string", format: "date-time" },
+            to: { type: "string", format: "date-time" },
+          },
+          required: ["companyId"],
+          additionalProperties: false,
+        },
+        annotations: { readOnlyHint: true, untrustedContentHint: false },
+        execute: async (input) => {
+          const companyId = companyIdFrom(input);
+          const range = input as { from?: string; to?: string };
+          const params = new URLSearchParams();
+          if (range.from) params.set("from", range.from);
+          if (range.to) params.set("to", range.to);
+          const query = params.toString();
+          return api<CompanyHours>(
+            `/api/v1/companies/${companyId}/hours${query ? `?${query}` : ""}`,
+          );
+        },
+      },
+      options,
+    ),
+  ).catch(reportRegistrationError);
 
   return () => lifecycle.abort();
 }
