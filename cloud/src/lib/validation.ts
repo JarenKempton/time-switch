@@ -79,3 +79,21 @@ export const updateSessionSchema = z
 export function parseDate(value: string): Date {
   return new Date(value);
 }
+
+export const createRetrievalSchema = z
+  .object({
+    periodStart: z.iso.datetime({ offset: true }),
+    periodEnd: z.iso.datetime({ offset: true }),
+    nextPeriodEnd: z.iso.datetime({ offset: true }),
+    note: z.string().trim().max(500).nullable().optional(),
+    /** When set, the company's cadence anchor moves to this date. */
+    reanchorDate: dateOnly.optional(),
+  })
+  .refine(
+    (value) => new Date(value.periodStart) < new Date(value.periodEnd),
+    "The period end must be after its start.",
+  )
+  .refine(
+    (value) => new Date(value.periodEnd) <= new Date(value.nextPeriodEnd),
+    "The next period must end after this one.",
+  );

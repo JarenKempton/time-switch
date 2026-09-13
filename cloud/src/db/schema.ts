@@ -56,3 +56,36 @@ export const sessions = sqliteTable(
 
 export type Company = typeof companies.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
+
+/**
+ * A recorded hours retrieval. Each row closes out a reporting window for one
+ * company and states when the following window is scheduled to end. The most
+ * recent row per company therefore defines the "current" pay period until it
+ * lapses, after which the company's regular cadence resumes.
+ */
+export const hourRetrievals = sqliteTable(
+  "hour_retrievals",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id),
+    periodStart: integer("period_start", { mode: "timestamp_ms" }).notNull(),
+    periodEnd: integer("period_end", { mode: "timestamp_ms" }).notNull(),
+    nextPeriodEnd: integer("next_period_end", {
+      mode: "timestamp_ms",
+    }).notNull(),
+    totalSeconds: integer("total_seconds").notNull(),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    index("idx_hour_retrievals_company_period_end").on(
+      table.companyId,
+      table.periodEnd,
+    ),
+  ],
+);
+
+export type HourRetrieval = typeof hourRetrievals.$inferSelect;

@@ -193,3 +193,110 @@ describe("time clock API", () => {
     expect(summary.body.data.companies[0].totalSeconds).toBe(7_200);
   });
 });
+
+describe("hour retrievals", () => {
+  async function seedCompanyWithSession() {
+    const company = await createCompany("Retrieval Co");
+    const companyId = company.body.data.id;
+    const sessionId = "018f47a0-7b8c-4c5d-9e6f-0123456789ab";
+    await request("/api/v1/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        id: sessionId,
+        companyId,
+        startedAt: "2026-09-10T09:00:00.000Z",
+      }),
+    });
+    await request(`/api/v1/sessions/${sessionId}/stop`, {
+      method: "POST",
+      body: JSON.stringify({ endedAt: "2026-09-10T12:00:00.000Z" }),
+    });
+    return companyId;
+  }
+
+  it("reports company hours for a range", async () => {
+    const companyId = await seedCompanyWithSession();
+    const hours = await request<{
+      data: { totalSeconds: number; sessionCount: number };
+    }>(
+      `/api/v1/companies/${companyId}/hours?from=2026-09-01T00:00:00.000Z&to=2026-09-15T00:00:00.000Z`,
+    );
+    expect(hours.status).toBe(200);
+    expect(hours.body.data).toMatchObject({
+      totalSeconds: 10_800,
+      sessionCount: 1,
+    });
+  });
+
+  it("records a retrieval with a server-computed total and can re-anchor", async () => {
+    const companyId = await seedCompanyWithSession();
+    const created = await request<{
+      data: {
+        id: string;
+        totalSeconds: number;
+        nextPeriodEnd: string;
+        company: { payPeriodAnchorDate: string };
+      };
+    }>(`/api/v1/companies/${companyId}/retrievals`, {
+      method: "POST",
+      body: JSON.stringify({
+        periodStart: "2026-09-01T00:00:00.000Z",
+        periodEnd: "2026-09-12T15:00:00.000Z",
+        nextPeriodEnd: "2026-09-26T00:00:00.000Z",
+        note: "Invoice 42",
+        reanchorDate: "2026-09-12",
+      }),
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.totalSeconds).toBe(10_800);
+    expect(created.body.data.company.payPeriodAnchorDate).toBe("2026-09-12");
+
+    const list = await request<{ data: Array<{ id: string; note: string }> }>(
+      `/api/v1/retrievals?companyId=${companyId}`,
+    );
+    expect(list.body.data).toHaveLength(1);
+    expect(list.body.data[0].note).toBe("Invoice 42");
+
+    const overlap = await request<{ error: { code: string } }>(
+      `/api/v1/companies/${companyId}/retrievals`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          periodStart: "2026-09-10T00:00:00.000Z",
+          periodEnd: "2026-09-13T00:00:00.000Z",
+          nextPeriodEnd: "2026-09-26T00:00:00.000Z",
+        }),
+      },
+    );
+    expect(overlap.status).toBe(409);
+    expect(overlap.body.error.code).toBe("retrieval_overlap");
+
+    const removed = await request(
+      `/api/v1/retrievals/${created.body.data.id}`,
+      {
+        method: "DELETE",
+      },
+    );
+    expect(removed.status).toBe(200);
+    const after = await request<{ data: unknown[] }>(
+      `/api/v1/retrievals?companyId=${companyId}`,
+    );
+    expect(after.body.data).toHaveLength(0);
+  });
+
+  it("rejects a retrieval whose next period ends before it does", async () => {
+    const companyId = await seedCompanyWithSession();
+    const bad = await request<{ error: { code: string } }>(
+      `/api/v1/companies/${companyId}/retrievals`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          periodStart: "2026-09-01T00:00:00.000Z",
+          periodEnd: "2026-09-12T00:00:00.000Z",
+          nextPeriodEnd: "2026-09-11T00:00:00.000Z",
+        }),
+      },
+    );
+    expect(bad.status).toBe(422);
+  });
+});

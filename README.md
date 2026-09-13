@@ -22,10 +22,11 @@ Cloudflare Worker at time.jarenkempton.dev
 SQLite Durable Object
   ├─ companies
   ├─ sessions (at most one active)
+  ├─ hour_retrievals (one per "Get hours" action)
   └─ hibernating WebSockets for live dashboard updates
 ```
 
-Pay periods are configuration, not stored instances. Each company has a cadence and anchor date; the dashboard derives the current range, calculates its hours, permits a one-off start override, and exports the matching sessions.
+Pay periods are derived, not stored. Each company has a cadence and anchor date, and the dashboard derives the current range from them. Retrieving hours ("Get hours") is the one stored event: it closes a window, records the total the ledger produced at that moment, and states when the next period ends. That choice can be the next regular cutoff, the cutoff after that, a full cadence from today (which re-anchors the company), or a custom date. Once the chosen window lapses the regular cadence resumes. The most recent retrieval can be undone from History.
 
 ## Repository layout
 
@@ -37,12 +38,12 @@ Pay periods are configuration, not stored instances. Each company has a cadence 
 
 With the angled switch terminals on the right and A/B/C/D labeled counter-clockwise from the top:
 
-| Switch terminal | ESP32-C3 Super Mini |
-| --- | --- |
-| A | GND |
-| B | GPIO4 — physical right |
-| C | GPIO3 — physical left |
-| D | Disconnected and insulated |
+| Switch terminal | ESP32-C3 Super Mini        |
+| --------------- | -------------------------- |
+| A               | GND                        |
+| B               | GPIO4 — physical right     |
+| C               | GPIO3 — physical left      |
+| D               | Disconnected and insulated |
 
 The firmware enables the ESP32's internal pull-ups. Do not apply an external voltage to either switch input.
 
@@ -56,6 +57,8 @@ pnpm install
 cp .dev.vars.example .dev.vars
 pnpm dev --host 0.0.0.0
 ```
+
+The dashboard has three views, switched with hash routes: `#/` (live session, per-company pay periods, recent sessions), `#/history` (range totals, retrieved hours, session corrections), and `#/settings` (companies, cadences, device IDs).
 
 Put a random secret of at least 32 bytes in `.dev.vars` while developing. `.dev.vars` is ignored by Git.
 
@@ -89,19 +92,23 @@ The Worker does not contain a fallback dashboard password. Do not expose the pro
 
 All browser timestamps are ISO 8601 instants. Reporting ranges use an inclusive `from` and exclusive `to`.
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET`, `POST` | `/api/v1/companies` | List or create companies |
-| `PATCH` | `/api/v1/companies/:id` | Edit or archive a company |
-| `GET`, `POST` | `/api/v1/sessions` | Query or manually start sessions |
-| `PATCH` | `/api/v1/sessions/:id` | Correct a ledger entry |
-| `POST` | `/api/v1/sessions/:id/stop` | Stop a session idempotently |
-| `GET` | `/api/v1/status` | Read the current active session |
-| `GET` | `/api/v1/summary?from=&to=` | Calculate clipped totals |
-| `GET` | `/api/v1/export.csv` | Export filtered sessions |
-| `GET` | `/api/v1/live` | Receive state changes over WebSocket |
-| `POST` | `/device/v1/sessions/start` | Authenticated device start |
-| `POST` | `/device/v1/sessions/:id/stop` | Authenticated device stop |
+| Method        | Path                                    | Purpose                                             |
+| ------------- | --------------------------------------- | --------------------------------------------------- |
+| `GET`, `POST` | `/api/v1/companies`                     | List or create companies                            |
+| `PATCH`       | `/api/v1/companies/:id`                 | Edit or archive a company                           |
+| `GET`, `POST` | `/api/v1/sessions`                      | Query or manually start sessions                    |
+| `PATCH`       | `/api/v1/sessions/:id`                  | Correct a ledger entry                              |
+| `POST`        | `/api/v1/sessions/:id/stop`             | Stop a session idempotently                         |
+| `GET`         | `/api/v1/status`                        | Read the current active session                     |
+| `GET`         | `/api/v1/summary?from=&to=`             | Calculate clipped totals                            |
+| `GET`         | `/api/v1/companies/:id/hours?from=&to=` | Clipped total and session count for one company     |
+| `GET`         | `/api/v1/retrievals?companyId=`         | List recorded hour retrievals                       |
+| `POST`        | `/api/v1/companies/:id/retrievals`      | Record a retrieval and schedule the next period end |
+| `DELETE`      | `/api/v1/retrievals/:id`                | Undo the most recent retrieval for a company        |
+| `GET`         | `/api/v1/export.csv`                    | Export filtered sessions                            |
+| `GET`         | `/api/v1/live`                          | Receive state changes over WebSocket                |
+| `POST`        | `/device/v1/sessions/start`             | Authenticated device start                          |
+| `POST`        | `/device/v1/sessions/:id/stop`          | Authenticated device stop                           |
 
 Device requests sign `timestamp + method + path + SHA-256(body)` with HMAC-SHA256. Requests outside the five-minute clock window are rejected. Session UUIDs make retries idempotent.
 
