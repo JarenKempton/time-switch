@@ -252,7 +252,7 @@ function PeriodCard({
           <h3>{company.name}</h3>
           <span>
             {describeCadence(company)}
-            {period.source === "custom" ? " · custom period" : ""}
+            {period.source === "custom" ? " · custom" : ""}
           </span>
         </div>
         {isActive && (

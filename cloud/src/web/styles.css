@@ -483,6 +483,9 @@ h2 {
   display: block;
   font-size: 0.8rem;
   color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .live-chip {
   --chip: var(--company-color, var(--primary));
