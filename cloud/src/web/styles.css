@@ -313,7 +313,7 @@ h2 {
   overflow: hidden;
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 32px;
+  gap: 24px 32px;
   align-items: end;
   padding: 30px 32px;
   border: 1px solid var(--border);
@@ -349,11 +349,11 @@ h2 {
   gap: 16px;
 }
 .clock-out {
-  background: var(--secondary);
-  color: var(--foreground);
-  border-color: var(--border);
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 44px;
+  margin-top: 4px;
   font-weight: 600;
-  padding-inline: 14px;
 }
 .clock-out svg {
   color: var(--destructive);

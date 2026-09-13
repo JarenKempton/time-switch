@@ -75,7 +75,6 @@ export function Dashboard({
             <>
               <div className="hero-label">Clocked in</div>
               <div className="hero-company">
-                <CompanyMark company={active.company} size="xl" />
                 <div>
                   <h1>{active.company.name}</h1>
                   <p>
@@ -97,34 +96,27 @@ export function Dashboard({
               <p>Flip the desk switch or pick a company to start a session.</p>
             </>
           )}
-          <div className="hero-actions">
-            {active ? (
-              <Button
-                size="lg"
-                className="clock-out"
-                onClick={() => void stop()}
-              >
-                <SquareIcon className="fill-current" />
-                Clock out
-              </Button>
-            ) : loading ? (
-              <Skeleton className="h-9 w-40" />
-            ) : (
-              activeCompanies.map((company) => (
-                <Button
-                  key={company.id}
-                  size="lg"
-                  variant="outline"
-                  className="clock-in"
-                  style={companyStyle(company)}
-                  onClick={() => void start(company)}
-                >
-                  <PlayIcon className="fill-current" />
-                  {company.name}
-                </Button>
-              ))
-            )}
-          </div>
+          {!active && (
+            <div className="hero-actions">
+              {loading ? (
+                <Skeleton className="h-9 w-40" />
+              ) : (
+                activeCompanies.map((company) => (
+                  <Button
+                    key={company.id}
+                    size="lg"
+                    variant="outline"
+                    className="clock-in"
+                    style={companyStyle(company)}
+                    onClick={() => void start(company)}
+                  >
+                    <PlayIcon className="fill-current" />
+                    {company.name}
+                  </Button>
+                ))
+              )}
+            </div>
+          )}
         </div>
         <div className="hero-timer">
           <span>{active ? "Session" : "Today"}</span>
@@ -132,6 +124,17 @@ export function Dashboard({
             {active ? formatClock(activeSeconds) : formatDuration(todaySeconds)}
           </strong>
         </div>
+        {active && (
+          <Button
+            size="lg"
+            variant="outline"
+            className="clock-out"
+            onClick={() => void stop()}
+          >
+            <SquareIcon className="fill-current" />
+            Clock out
+          </Button>
+        )}
       </section>
 
       <section className="section">
