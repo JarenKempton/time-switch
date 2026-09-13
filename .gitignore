@@ -1,0 +1,10 @@
+**/build/
+**/sdkconfig
+**/sdkconfig.old
+cloud/node_modules/
+cloud/dist/
+cloud/.wrangler/
+cloud/.dev.vars
+cloud/.env
+cloud/worker-configuration.d.ts
+.DS_Store
