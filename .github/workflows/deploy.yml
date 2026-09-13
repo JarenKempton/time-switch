@@ -1,0 +1,55 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: time-switch-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.15.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: cloud/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: cloud
+      - run: pnpm format:check
+        working-directory: cloud
+      - run: pnpm check
+        working-directory: cloud
+      - run: pnpm test
+        working-directory: cloud
+      - run: pnpm deploy:check
+        working-directory: cloud
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cloud
+          wranglerVersion: 4.131.1
+          command: deploy --strict --message ${{ github.sha }}
+          secrets: |
+            DEVICE_HMAC_SECRET
+        env:
+          DEVICE_HMAC_SECRET: ${{ secrets.DEVICE_HMAC_SECRET }}
+      - name: Verify deployed Durable Object
+        run: pnpm smoke
+        working-directory: cloud
+        env:
+          BASE_URL: https://time.jarenkempton.dev
+          DEVICE_ID: desk-panel
+          DEVICE_HMAC_SECRET: ${{ secrets.DEVICE_HMAC_SECRET }}

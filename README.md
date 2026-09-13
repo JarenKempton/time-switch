@@ -32,6 +32,8 @@ Pay periods are configuration, not stored instances. Each company has a cadence 
 - `firmware/` — ESP-IDF firmware for the ESP32-C3 time switch.
 - `cloud/` — Cloudflare Worker, Durable Object, Drizzle schema/migrations, API, tests, and dashboard.
 - `.github/workflows/ci.yml` — cloud checks and an ESP-IDF build.
+- `.github/workflows/deploy.yml` — manually approved production deployment and signed smoke test.
+- `docs/deployment.md` — exact GitHub and Cloudflare production setup.
 
 ## Hardware wiring
 
@@ -66,6 +68,7 @@ pnpm check
 pnpm test
 pnpm build
 pnpm format:check
+pnpm deploy:check
 ```
 
 Drizzle is the schema and migration source of truth. After editing `cloud/src/db/schema.ts`, generate a new migration with:
@@ -76,14 +79,9 @@ pnpm migrate:generate
 
 ## Cloudflare deployment preparation
 
-`cloud/wrangler.jsonc` declares the `time-switch` Worker, the SQLite Durable Object, static assets, and the custom domain `time.jarenkempton.dev`. Before the first deployment:
+`cloud/wrangler.jsonc` declares the `time-switch` Worker, SQLite Durable Object, static assets, observability, source maps, and custom domain `time.jarenkempton.dev`. The Worker does not contain a fallback dashboard password: all dashboard and browser API requests fail closed unless Cloudflare Access supplies an authenticated identity. `/device/*` remains separately protected by HMAC so the ESP32 does not need an interactive Access login.
 
-1. Create a strong shared device secret: `openssl rand -hex 32`.
-2. Store it in Cloudflare with `pnpm exec wrangler secret put DEVICE_HMAC_SECRET`.
-3. Deploy from `cloud/` with `pnpm exec wrangler deploy`.
-4. Protect the dashboard and `/api/*` with Cloudflare Access. Leave `/device/*` reachable by the ESP32; the Worker independently authenticates every device request with its HMAC signature.
-
-The Worker does not contain a fallback dashboard password. Do not expose the production dashboard without the Access policy.
+Follow [`docs/deployment.md`](docs/deployment.md) for the one-time Access and GitHub environment setup and the manual production release workflow.
 
 ## API
 
@@ -102,6 +100,7 @@ All browser timestamps are ISO 8601 instants. Reporting ranges use an inclusive 
 | `GET` | `/api/v1/live` | Receive state changes over WebSocket |
 | `POST` | `/device/v1/sessions/start` | Authenticated device start |
 | `POST` | `/device/v1/sessions/:id/stop` | Authenticated device stop |
+| `POST` | `/device/v1/health` | Signed deployment and storage health check |
 
 Device requests sign `timestamp + method + path + SHA-256(body)` with HMAC-SHA256. Requests outside the five-minute clock window are rejected. Session UUIDs make retries idempotent.
 

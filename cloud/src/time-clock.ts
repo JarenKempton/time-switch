@@ -29,6 +29,7 @@ export interface TimeClockEnv {
   ASSETS: Fetcher;
   DEVICE_HMAC_SECRET?: string;
   DEVICE_ID: string;
+  CF_VERSION_METADATA?: WorkerVersionMetadata;
 }
 
 interface SessionWithCompany extends Session {
@@ -97,6 +98,9 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
         return this.exportCsv(url);
       if (path === "/device/v1/sessions/start" && request.method === "POST") {
         return await this.handleDeviceStart(request);
+      }
+      if (path === "/device/v1/health" && request.method === "POST") {
+        return this.health();
       }
       const deviceStop = path.match(
         /^\/device\/v1\/sessions\/([0-9a-f-]+)\/stop$/i,
@@ -265,6 +269,19 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
       });
     }
     return ok(result.session, { status: result.created ? 201 : 200 });
+  }
+
+  private health(): Response {
+    // Reading both tables verifies that the Durable Object is reachable and all
+    // checked-in Drizzle migrations were applied, without exposing ledger data.
+    this.db.select({ id: companies.id }).from(companies).limit(1).all();
+    this.db.select({ id: sessions.id }).from(sessions).limit(1).all();
+    return ok({
+      ok: true,
+      service: "time-switch",
+      storage: "ready",
+      serverTime: new Date().toISOString(),
+    });
   }
 
   private startSession(input: {

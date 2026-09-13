@@ -1,5 +1,60 @@
-import { SELF } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import type { TimeClockEnv } from "../src/time-clock";
+import worker from "../src/worker";
+
+const DEVICE_SECRET = "test-secret-that-is-longer-than-thirty-two-bytes";
+const workerFetch = worker.fetch as (
+  request: Request,
+  env: TimeClockEnv,
+  ctx: ExecutionContext,
+) => Promise<Response>;
+const accessContext = {
+  access: {
+    aud: "test-audience",
+    getIdentity: async () => ({ email: "developer@example.test" }),
+  },
+} as ExecutionContext;
+
+function dashboardFetch(path: string, init?: RequestInit): Promise<Response> {
+  return workerFetch(
+    new Request(`https://example.test${path}`, init),
+    env as unknown as TimeClockEnv,
+    accessContext,
+  );
+}
+
+async function signedDeviceHeaders(path: string, body: string) {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(body),
+  );
+  const bodyHash = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(DEVICE_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode([timestamp, "POST", path, bodyHash].join("\n")),
+  );
+  const signatureHex = Array.from(new Uint8Array(signature), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return {
+    "content-type": "application/json",
+    "x-time-switch-device": "desk-panel",
+    "x-time-switch-signature": `v1=${signatureHex}`,
+    "x-time-switch-timestamp": timestamp,
+  };
+}
 
 async function request<T>(
   path: string,
@@ -7,10 +62,7 @@ async function request<T>(
 ): Promise<{ status: number; body: T }> {
   const headers = new Headers(init?.headers);
   if (init?.body) headers.set("content-type", "application/json");
-  const response = await SELF.fetch(`https://example.test${path}`, {
-    ...init,
-    headers,
-  });
+  const response = await dashboardFetch(path, { ...init, headers });
   return { status: response.status, body: (await response.json()) as T };
 }
 
@@ -22,6 +74,22 @@ async function createCompany(name = "Northstar") {
 }
 
 describe("time clock API", () => {
+  it("verifies device authentication and migrated storage through health", async () => {
+    const path = "/device/v1/health";
+    const body = "{}";
+    const response = await SELF.fetch(`https://example.test${path}`, {
+      method: "POST",
+      headers: await signedDeviceHeaders(path, body),
+      body,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      data: { ok: true, service: "time-switch", storage: "ready" },
+    });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-request-id")).toBeTruthy();
+  });
+
   it("stores per-company pay-period settings", async () => {
     const created = await request<{
       data: {
@@ -58,7 +126,7 @@ describe("time clock API", () => {
   });
 
   it("pushes an initial snapshot and subsequent changes over WebSocket", async () => {
-    const response = await SELF.fetch("https://example.test/api/v1/live", {
+    const response = await dashboardFetch("/api/v1/live", {
       headers: { upgrade: "websocket" },
     });
     expect(response.status).toBe(101);

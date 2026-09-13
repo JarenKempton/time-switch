@@ -2,8 +2,10 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "time-switch",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-09-12",
+  "compatibility_date": "2026-09-13",
   "workers_dev": false,
+  "preview_urls": false,
+  "upload_source_maps": true,
   "routes": [
     {
       "pattern": "time.jarenkempton.dev",
@@ -27,6 +29,31 @@
     "TimeClock": {
       "type": "durable-object",
       "storage": "sqlite",
+    },
+  },
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA",
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "redact_query_string": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+    },
+  },
+  "access": {
+    "dev": {
+      "aud": "local-development",
+      "identity": {
+        "email": "developer@localhost",
+      },
     },
   },
   "vars": {
