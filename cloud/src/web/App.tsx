@@ -58,7 +58,6 @@ export function App() {
               onClick={() => navigate("dashboard")}
               title={`Clocked into ${active.company.name}`}
             >
-              <span className="pulse" aria-hidden="true" />
               {formatClock(
                 (data.now - new Date(active.startedAt).getTime()) / 1000,
               )}

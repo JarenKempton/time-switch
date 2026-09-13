@@ -14,7 +14,7 @@
   --card-foreground: oklch(0.97 0.006 180);
   --popover: oklch(0.18 0.01 215);
   --popover-foreground: oklch(0.97 0.006 180);
-  --primary: oklch(0.84 0.14 160);
+  --primary: oklch(0.78 0.1 160);
   --primary-foreground: oklch(0.14 0.02 160);
   --secondary: oklch(0.23 0.012 215);
   --secondary-foreground: oklch(0.95 0.006 180);
@@ -25,7 +25,7 @@
   --destructive: oklch(0.7 0.19 25);
   --border: oklch(0.29 0.014 215);
   --input: oklch(0.3 0.014 215);
-  --ring: oklch(0.78 0.12 160);
+  --ring: oklch(0.7 0.08 160);
   --chart-1: oklch(0.84 0.14 160);
   --chart-2: oklch(0.72 0.13 210);
   --chart-3: oklch(0.68 0.15 65);
@@ -91,11 +91,6 @@
   }
   body {
     @apply m-0 min-h-screen min-w-80 bg-background text-foreground;
-    background-image: radial-gradient(
-      circle at 75% -20%,
-      color-mix(in oklch, var(--primary) 10%, transparent),
-      transparent 34rem
-    );
   }
 }
 
@@ -191,38 +186,12 @@
 .tabular {
   font-variant-numeric: tabular-nums;
 }
-.pulse {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--company-color, var(--primary));
-  box-shadow: 0 0 0 0
-    color-mix(in srgb, var(--company-color, var(--primary)) 55%, transparent);
-  animation: pulse 1.8s ease-out infinite;
-  flex: 0 0 auto;
-}
-@keyframes pulse {
-  0% {
-    box-shadow: 0 0 0 0
-      color-mix(in srgb, var(--company-color, var(--primary)) 55%, transparent);
-  }
-  100% {
-    box-shadow: 0 0 0 9px transparent;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .pulse {
-    animation: none;
-  }
-}
 
 .eyebrow {
   display: block;
   color: var(--muted-foreground);
-  text-transform: uppercase;
-  font-size: 0.68rem;
-  letter-spacing: 0.14em;
-  font-weight: 700;
+  font-size: 0.8rem;
+  font-weight: 500;
   margin-bottom: 6px;
 }
 h1,
@@ -292,8 +261,6 @@ h2 {
 .company-mark--dot {
   border-radius: 50%;
   background: var(--company-color);
-  box-shadow: 0 0 0 3px
-    color-mix(in srgb, var(--company-color) 22%, transparent);
 }
 .company-mark--logo {
   border-radius: 8px;
@@ -351,34 +318,22 @@ h2 {
   padding: 30px 32px;
   border: 1px solid var(--border);
   border-radius: var(--radius-2xl);
-  background:
-    radial-gradient(
-      70% 120% at 100% 0%,
-      color-mix(in srgb, var(--company-color) 12%, transparent),
-      transparent 60%
-    ),
-    var(--card);
-  transition: border-color 0.3s;
+  background: var(--card);
 }
 .hero--active {
-  border-color: color-mix(in srgb, var(--company-color) 45%, var(--border));
+  border-color: color-mix(in srgb, var(--company-color) 30%, var(--border));
 }
 .hero-label {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   color: var(--muted-foreground);
-  text-transform: uppercase;
-  font-size: 0.68rem;
-  letter-spacing: 0.14em;
-  font-weight: 700;
-  margin-bottom: 16px;
-}
-.hero--active .hero-label {
-  color: var(--company-color);
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 14px;
 }
 .hero h1 {
-  font-size: clamp(1.9rem, 4vw, 2.8rem);
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
   line-height: 1.05;
   letter-spacing: -0.04em;
   font-weight: 700;
@@ -394,13 +349,17 @@ h2 {
   gap: 16px;
 }
 .clock-out {
-  background: var(--company-color);
-  color: var(--background);
-  font-weight: 650;
-  padding-inline: 16px;
+  background: var(--secondary);
+  color: var(--foreground);
+  border-color: var(--border);
+  font-weight: 600;
+  padding-inline: 14px;
+}
+.clock-out svg {
+  color: var(--destructive);
 }
 .clock-out:hover {
-  background: color-mix(in srgb, var(--company-color) 85%, white);
+  background: var(--muted);
 }
 .hero-actions {
   display: flex;
@@ -430,14 +389,11 @@ h2 {
 .hero-timer strong {
   display: block;
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  font-size: clamp(2.4rem, 6vw, 4.4rem);
+  font-size: clamp(2rem, 4vw, 3rem);
   line-height: 1;
   font-weight: 500;
-  letter-spacing: -0.06em;
+  letter-spacing: -0.04em;
   color: var(--foreground);
-}
-.hero--active .hero-timer strong {
-  color: var(--company-color);
 }
 
 /* ---------- Period cards ---------- */
@@ -459,8 +415,7 @@ h2 {
   transition: border-color 0.2s;
 }
 .period-card--active {
-  border-color: color-mix(in srgb, var(--company-color) 45%, var(--border));
-  box-shadow: 0 0 24px color-mix(in srgb, var(--company-color) 8%, transparent);
+  border-color: color-mix(in srgb, var(--company-color) 30%, var(--border));
 }
 .period-card header {
   display: flex;
@@ -509,16 +464,15 @@ h2 {
   height: 6px;
   border-radius: 50%;
   background: var(--chip);
-  animation: pulse 1.8s ease-out infinite;
 }
 .period-total strong {
   display: flex;
   align-items: baseline;
   gap: 4px;
-  font-size: 2.3rem;
+  font-size: 1.9rem;
   line-height: 1;
-  font-weight: 650;
-  letter-spacing: -0.04em;
+  font-weight: 600;
+  letter-spacing: -0.03em;
 }
 .period-total strong em {
   margin-left: auto;

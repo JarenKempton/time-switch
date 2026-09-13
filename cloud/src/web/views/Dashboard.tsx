@@ -73,10 +73,7 @@ export function Dashboard({
         <div className="hero-main">
           {active ? (
             <>
-              <div className="hero-label">
-                <span className="pulse" aria-hidden="true" />
-                Clocked in
-              </div>
+              <div className="hero-label">Clocked in</div>
               <div className="hero-company">
                 <CompanyMark company={active.company} size="xl" />
                 <div>
@@ -96,7 +93,7 @@ export function Dashboard({
           ) : (
             <>
               <div className="hero-label">Clocked out</div>
-              <h1>Ready when you are.</h1>
+              <h1>Clocked out</h1>
               <p>Flip the desk switch or pick a company to start a session.</p>
             </>
           )}
