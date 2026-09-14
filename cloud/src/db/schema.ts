@@ -54,8 +54,29 @@ export const sessions = sqliteTable(
   ],
 );
 
+export const devices = sqliteTable(
+  "devices",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    secret: text("secret"),
+    setupTokenHash: text("setup_token_hash"),
+    setupTokenExpiresAt: integer("setup_token_expires_at", {
+      mode: "timestamp_ms",
+    }),
+    firmwareVersion: text("firmware_version"),
+    provisionedAt: integer("provisioned_at", { mode: "timestamp_ms" }),
+    lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
+    revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [uniqueIndex("idx_devices_name").on(table.name)],
+);
+
 export type Company = typeof companies.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
+export type Device = typeof devices.$inferSelect;
 
 /**
  * A recorded hours retrieval. Each row closes out a reporting window for one

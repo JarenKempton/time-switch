@@ -250,6 +250,92 @@ h2 {
   margin-top: 8px;
 }
 
+/* ---------- Devices ---------- */
+
+.devices-view {
+  display: grid;
+  gap: 18px;
+}
+.devices-view > .section-heading {
+  margin-bottom: 0;
+}
+.device-setup-content {
+  display: grid;
+  gap: 20px;
+}
+.device-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.device-name-field {
+  grid-column: 1 / -1;
+}
+.install-progress {
+  display: grid;
+  gap: 8px;
+}
+.install-progress-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+.install-progress-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--muted);
+}
+.install-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 120ms ease-out;
+}
+.device-setup-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-top: 4px;
+}
+.device-setup-actions > span {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+.device-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.device-card {
+  min-width: 0;
+}
+.device-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px 10px;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+.device-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.device-meta svg {
+  width: 14px;
+  height: 14px;
+}
+.device-meta strong {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
 /* ---------- Company mark ---------- */
 
 .company-mark {
@@ -762,6 +848,17 @@ h2 {
 /* ---------- Responsive ---------- */
 
 @media (max-width: 760px) {
+  .device-form-grid,
+  .device-list {
+    grid-template-columns: 1fr;
+  }
+  .device-setup-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .device-setup-actions button {
+    width: 100%;
+  }
   .shell {
     width: min(100% - 32px, 680px);
     padding-top: 20px;

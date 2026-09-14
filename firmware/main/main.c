@@ -6,6 +6,9 @@
 #include <time.h>
 
 #include "driver/gpio.h"
+#include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
+#include "cJSON.h"
 #include "esp_crt_bundle.h"
 #include "esp_check.h"
 #include "esp_err.h"
@@ -35,6 +38,8 @@
 #define STORAGE_VERSION 1U
 #define MAX_PENDING_OPERATIONS 16
 #define MIN_VALID_UNIX_TIMESTAMP 1704067200LL  // 2024-01-01T00:00:00Z
+#define FIRMWARE_VERSION "0.2.0"
+#define HEARTBEAT_INTERVAL_MS 30000
 
 typedef enum {
   SWITCH_LEFT,
@@ -63,6 +68,7 @@ typedef struct {
   char api_url[161];
   char device_id[33];
   char device_secret[129];
+  char provisioning_token[65];
   char left_company_id[37];
   char right_company_id[37];
 } device_config_t;
@@ -83,6 +89,7 @@ static persistent_state_t state;
 static SemaphoreHandle_t state_mutex;
 static EventGroupHandle_t wifi_events;
 static bool clock_was_ready;
+static TickType_t last_heartbeat_tick;
 
 static bool clock_ready(void) {
   time_t now = 0;
@@ -172,7 +179,8 @@ static bool config_complete(void) {
   return config.wifi_ssid[0] != '\0' && config.api_url[0] != '\0' &&
          strlen(config.wifi_ssid) <= 32 && strlen(config.wifi_password) <= 63 &&
          strncmp(config.api_url, "https://", 8) == 0 &&
-         config.device_id[0] != '\0' && strlen(config.device_secret) >= 32 &&
+         config.device_id[0] != '\0' &&
+         (strlen(config.device_secret) >= 32 || strlen(config.provisioning_token) == 64) &&
          strlen(config.left_company_id) == 36 && strlen(config.right_company_id) == 36;
 }
 
@@ -297,20 +305,7 @@ static bool sign_request(const char *timestamp, const char *method, const char *
   return true;
 }
 
-static bool send_operation(const pending_operation_t *operation) {
-  char path[96];
-  char occurred_at[25];
-  char body[256];
-  format_iso8601(operation->occurred_at, occurred_at);
-  if (operation->type == OPERATION_START) {
-    snprintf(path, sizeof(path), "/device/v1/sessions/start");
-    snprintf(body, sizeof(body), "{\"id\":\"%s\",\"companyId\":\"%s\",\"startedAt\":\"%s\"}",
-             operation->session_id, operation->company_id, occurred_at);
-  } else {
-    snprintf(path, sizeof(path), "/device/v1/sessions/%s/stop", operation->session_id);
-    snprintf(body, sizeof(body), "{\"endedAt\":\"%s\"}", occurred_at);
-  }
-
+static bool send_signed_request(const char *path, const char *body) {
   char url[260];
   snprintf(url, sizeof(url), "%s%s", config.api_url, path);
   char timestamp[24];
@@ -349,6 +344,105 @@ static bool send_operation(const pending_operation_t *operation) {
   return true;
 }
 
+typedef struct {
+  char *data;
+  size_t capacity;
+  size_t length;
+} response_buffer_t;
+
+static esp_err_t capture_response(esp_http_client_event_t *event) {
+  if (event->event_id != HTTP_EVENT_ON_DATA || !event->user_data || event->data_len <= 0) {
+    return ESP_OK;
+  }
+  response_buffer_t *response = event->user_data;
+  const size_t available = response->capacity - response->length - 1;
+  const size_t copy_length = (size_t)event->data_len < available ? (size_t)event->data_len : available;
+  if (copy_length > 0) {
+    memcpy(response->data + response->length, event->data, copy_length);
+    response->length += copy_length;
+    response->data[response->length] = '\0';
+  }
+  return ESP_OK;
+}
+
+static bool provision_device(void) {
+  char url[224];
+  snprintf(url, sizeof(url), "%s/device/v1/provision", config.api_url);
+  char body[256];
+  snprintf(body, sizeof(body),
+           "{\"deviceId\":\"%s\",\"setupToken\":\"%s\",\"firmwareVersion\":\"%s\"}",
+           config.device_id, config.provisioning_token, FIRMWARE_VERSION);
+  char response_data[384] = {0};
+  response_buffer_t response = {
+      .data = response_data,
+      .capacity = sizeof(response_data),
+      .length = 0,
+  };
+  const esp_http_client_config_t http_config = {
+      .url = url,
+      .timeout_ms = 10000,
+      .crt_bundle_attach = esp_crt_bundle_attach,
+      .event_handler = capture_response,
+      .user_data = &response,
+  };
+  esp_http_client_handle_t client = esp_http_client_init(&http_config);
+  if (!client) return false;
+  esp_http_client_set_method(client, HTTP_METHOD_POST);
+  esp_http_client_set_header(client, "Content-Type", "application/json");
+  esp_http_client_set_post_field(client, body, strlen(body));
+  const esp_err_t result = esp_http_client_perform(client);
+  const int status = result == ESP_OK ? esp_http_client_get_status_code(client) : 0;
+  esp_http_client_cleanup(client);
+  if (result != ESP_OK || status < 200 || status >= 300) {
+    ESP_LOGW(TAG, "Device provisioning failed (%s, HTTP %d)", esp_err_to_name(result), status);
+    return false;
+  }
+
+  cJSON *document = cJSON_Parse(response_data);
+  cJSON *data = document ? cJSON_GetObjectItemCaseSensitive(document, "data") : NULL;
+  cJSON *secret = data ? cJSON_GetObjectItemCaseSensitive(data, "secret") : NULL;
+  const bool valid = cJSON_IsString(secret) && secret->valuestring && strlen(secret->valuestring) >= 32 &&
+                     strlen(secret->valuestring) < sizeof(config.device_secret);
+  if (valid) {
+    snprintf(config.device_secret, sizeof(config.device_secret), "%s", secret->valuestring);
+    memset(config.provisioning_token, 0, sizeof(config.provisioning_token));
+    if (save_config() != ESP_OK) {
+      memset(config.device_secret, 0, sizeof(config.device_secret));
+      ESP_LOGE(TAG, "Could not save provisioned device credential");
+    }
+  }
+  cJSON_Delete(document);
+  if (!valid || config.device_secret[0] == '\0') {
+    ESP_LOGE(TAG, "Provisioning response was invalid");
+    return false;
+  }
+  ESP_LOGI(TAG, "Device provisioning complete");
+  return true;
+}
+
+static bool send_heartbeat(void) {
+  const char *path = "/device/v1/heartbeat";
+  char body[96];
+  snprintf(body, sizeof(body), "{\"firmwareVersion\":\"%s\"}", FIRMWARE_VERSION);
+  return send_signed_request(path, body);
+}
+
+static bool send_operation(const pending_operation_t *operation) {
+  char path[96];
+  char occurred_at[25];
+  char body[256];
+  format_iso8601(operation->occurred_at, occurred_at);
+  if (operation->type == OPERATION_START) {
+    snprintf(path, sizeof(path), "/device/v1/sessions/start");
+    snprintf(body, sizeof(body), "{\"id\":\"%s\",\"companyId\":\"%s\",\"startedAt\":\"%s\"}",
+             operation->session_id, operation->company_id, occurred_at);
+  } else {
+    snprintf(path, sizeof(path), "/device/v1/sessions/%s/stop", operation->session_id);
+    snprintf(body, sizeof(body), "{\"endedAt\":\"%s\"}", occurred_at);
+  }
+  return send_signed_request(path, body);
+}
+
 static void network_task(void *parameter) {
   (void)parameter;
   while (true) {
@@ -357,6 +451,21 @@ static void network_task(void *parameter) {
       if (!clock_was_ready) {
         clock_was_ready = true;
         ESP_LOGI(TAG, "Network time synchronized");
+      }
+      if (config.device_secret[0] == '\0' && config.provisioning_token[0] != '\0') {
+        provision_device();
+      }
+      if (config.device_secret[0] == '\0') {
+        vTaskDelay(pdMS_TO_TICKS(1500));
+        continue;
+      }
+      const TickType_t now_tick = xTaskGetTickCount();
+      if (last_heartbeat_tick == 0 ||
+          now_tick - last_heartbeat_tick >= pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS)) {
+        last_heartbeat_tick = now_tick;
+        if (send_heartbeat()) {
+          ESP_LOGI(TAG, "Heartbeat delivered");
+        }
       }
       pending_operation_t operation;
       bool has_operation = false;
@@ -464,6 +573,7 @@ static bool set_config_value(const char *key, const char *value) {
   SET_VALUE("api_url", api_url)
   SET_VALUE("device_id", device_id)
   SET_VALUE("device_secret", device_secret)
+  SET_VALUE("provisioning_token", provisioning_token)
   SET_VALUE("left_company_id", left_company_id)
   SET_VALUE("right_company_id", right_company_id)
 #undef SET_VALUE
@@ -477,10 +587,11 @@ static void print_config(void) {
   printf("  api_url: %s\n", config.api_url[0] ? config.api_url : "<unset>");
   printf("  device_id: %s\n", config.device_id[0] ? config.device_id : "<unset>");
   printf("  device_secret: %s\n", config.device_secret[0] ? "<stored>" : "<unset>");
+  printf("  provisioning_token: %s\n", config.provisioning_token[0] ? "<stored>" : "<unset>");
   printf("  left_company_id: %s\n", config.left_company_id[0] ? config.left_company_id : "<unset>");
   printf("  right_company_id: %s\n", config.right_company_id[0] ? config.right_company_id : "<unset>");
   printf("  complete: %s\n", config_complete() ? "yes" : "no");
-  printf("Commands: show | set <key> <value> | reboot | clear_state\n\n");
+  printf("Commands: identify | show | set <key> <value> | reboot | clear_state\n\n");
 }
 
 static void console_task(void *parameter) {
@@ -491,6 +602,9 @@ static void console_task(void *parameter) {
     line[strcspn(line, "\r\n")] = '\0';
     if (strcmp(line, "show") == 0) {
       print_config();
+    } else if (strcmp(line, "identify") == 0) {
+      printf("TSJSON:{\"type\":\"device.info\",\"protocolVersion\":1,\"model\":\"ESP32-C3\",\"firmwareVersion\":\"%s\",\"configured\":%s}\n",
+             FIRMWARE_VERSION, config_complete() ? "true" : "false");
     } else if (strcmp(line, "reboot") == 0) {
       printf("Rebooting…\n");
       fflush(stdout);
@@ -529,6 +643,16 @@ static void console_task(void *parameter) {
   vTaskDelete(NULL);
 }
 
+static void initialize_console_input(void) {
+  usb_serial_jtag_driver_config_t console_config =
+      USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+  ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&console_config));
+  usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
+  usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
+  usb_serial_jtag_vfs_use_driver();
+  setvbuf(stdin, NULL, _IONBF, 0);
+}
+
 void app_main(void) {
   esp_err_t result = nvs_flash_init();
   if (result == ESP_ERR_NVS_NO_FREE_PAGES || result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -536,6 +660,7 @@ void app_main(void) {
     result = nvs_flash_init();
   }
   ESP_ERROR_CHECK(result);
+  initialize_console_input();
   load_config();
   load_state();
   state_mutex = xSemaphoreCreateMutex();

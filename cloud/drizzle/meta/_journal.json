@@ -22,6 +22,13 @@
       "when": 1789324088616,
       "tag": "0002_tranquil_stranger",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789412309354,
+      "tag": "0003_special_quicksilver",
+      "breakpoints": true
     }
   ]
 }

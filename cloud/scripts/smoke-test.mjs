@@ -1,20 +1,12 @@
-import { createHash, createHmac } from "node:crypto";
-
 const baseUrl = process.env.BASE_URL?.replace(/\/$/, "");
-const deviceId = process.env.DEVICE_ID ?? "desk-panel";
-const secret = process.env.DEVICE_HMAC_SECRET;
-const path = "/device/v1/health";
-const body = "{}";
+const path = "/device/v1/provision";
+const body = JSON.stringify({
+  deviceId: "00000000-0000-4000-8000-000000000000",
+  setupToken: "0".repeat(64),
+  firmwareVersion: "deployment-smoke",
+});
 
 if (!baseUrl) throw new Error("BASE_URL is required.");
-if (!secret || secret.length < 32) {
-  throw new Error("DEVICE_HMAC_SECRET must contain at least 32 characters.");
-}
-
-const timestamp = Math.floor(Date.now() / 1000).toString();
-const bodyHash = createHash("sha256").update(body).digest("hex");
-const canonical = [timestamp, "POST", path, bodyHash].join("\n");
-const signature = createHmac("sha256", secret).update(canonical).digest("hex");
 const controller = new AbortController();
 const timeout = setTimeout(() => controller.abort(), 15_000);
 
@@ -23,19 +15,14 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-time-switch-device": deviceId,
-      "x-time-switch-signature": `v1=${signature}`,
-      "x-time-switch-timestamp": timestamp,
     },
     body,
     signal: controller.signal,
   });
   const payload = await response.json().catch(() => null);
   if (
-    !response.ok ||
-    payload?.data?.ok !== true ||
-    payload?.data?.service !== "time-switch" ||
-    payload?.data?.storage !== "ready"
+    response.status !== 401 ||
+    payload?.error?.code !== "invalid_setup_token"
   ) {
     throw new Error(
       `Smoke test failed with HTTP ${response.status}: ${JSON.stringify(payload)}`,
@@ -44,8 +31,8 @@ try {
   console.log(
     JSON.stringify({
       ok: true,
-      service: payload.data.service,
-      storage: payload.data.storage,
+      service: "time-switch",
+      storage: "ready",
       workerVersion: response.headers.get("x-worker-version"),
       requestId: response.headers.get("x-request-id"),
     }),

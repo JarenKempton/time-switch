@@ -2,12 +2,7 @@ import { ApiError } from "./http";
 
 const MAX_CLOCK_SKEW_SECONDS = 5 * 60;
 
-export interface DeviceAuthEnv {
-  DEVICE_HMAC_SECRET?: string;
-  DEVICE_ID: string;
-}
-
-async function sha256Hex(value: string): Promise<string> {
+export async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(value),
@@ -42,9 +37,10 @@ function timingSafeEqual(left: Uint8Array, right: Uint8Array): boolean {
 export async function authenticateDevice(
   request: Request,
   body: string,
-  env: DeviceAuthEnv,
+  expectedDeviceId: string,
+  secret: string,
 ): Promise<void> {
-  if (!env.DEVICE_HMAC_SECRET || env.DEVICE_HMAC_SECRET.length < 32) {
+  if (secret.length < 32) {
     throw new ApiError(
       503,
       "device_auth_unconfigured",
@@ -57,7 +53,7 @@ export async function authenticateDevice(
   const signatureValue = request.headers.get("x-time-switch-signature");
 
   if (
-    deviceId !== env.DEVICE_ID ||
+    deviceId !== expectedDeviceId ||
     !timestampValue ||
     !signatureValue?.startsWith("v1=")
   ) {
@@ -90,7 +86,7 @@ export async function authenticateDevice(
   ].join("\n");
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(env.DEVICE_HMAC_SECRET),
+    new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],

@@ -65,6 +65,20 @@ export const stopSessionSchema = z.object({
   endedAt: z.iso.datetime({ offset: true }),
 });
 
+export const createDeviceSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+});
+
+export const provisionDeviceSchema = z.object({
+  deviceId: z.uuid(),
+  setupToken: z.string().regex(/^[a-f0-9]{64}$/i),
+  firmwareVersion: z.string().trim().min(1).max(64),
+});
+
+export const heartbeatDeviceSchema = z.object({
+  firmwareVersion: z.string().trim().min(1).max(64),
+});
+
 export const updateSessionSchema = z
   .object({
     companyId: z.uuid().optional(),

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 
-export type Route = "dashboard" | "history" | "settings";
+export type Route = "dashboard" | "history" | "devices" | "settings";
 
-const ROUTES: Route[] = ["dashboard", "history", "settings"];
+const ROUTES: Route[] = ["dashboard", "history", "devices", "settings"];
 
 function read(): Route {
   const hash = window.location.hash.replace(/^#\/?/, "");

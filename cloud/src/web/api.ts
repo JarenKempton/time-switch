@@ -63,6 +63,22 @@ export interface RetrievalInput {
   reanchorDate?: string;
 }
 
+export interface Device {
+  id: string;
+  name: string;
+  firmwareVersion: string | null;
+  provisionedAt: string | null;
+  lastSeenAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DeviceRegistration {
+  device: Device;
+  setupToken: string;
+}
+
 interface Envelope<T> {
   data: T;
 }
@@ -102,6 +118,14 @@ export const timeClock = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  devices: () => api<Device[]>("/api/v1/devices"),
+  createDevice: (name: string) =>
+    api<DeviceRegistration>("/api/v1/devices", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  revokeDevice: (id: string) =>
+    api<{ id: string }>(`/api/v1/devices/${id}`, { method: "DELETE" }),
   updateCompany: (id: string, body: unknown) =>
     api<Company>(`/api/v1/companies/${id}`, {
       method: "PATCH",

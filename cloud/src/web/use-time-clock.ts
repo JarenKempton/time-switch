@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   timeClock,
   type Company,
+  type Device,
   type Retrieval,
   type Session,
   type Status,
@@ -15,6 +16,7 @@ const EMPTY_STATUS: Status = {
 
 export interface TimeClockData {
   companies: Company[];
+  devices: Device[];
   activeCompanies: Company[];
   sessions: Session[];
   retrievals: Retrieval[];
@@ -37,6 +39,7 @@ export interface TimeClockData {
  */
 export function useTimeClock(): TimeClockData {
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [devices, setDevices] = useState<Device[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [retrievals, setRetrievals] = useState<Retrieval[]>([]);
   const [status, setStatus] = useState<Status>(EMPTY_STATUS);
@@ -50,17 +53,27 @@ export function useTimeClock(): TimeClockData {
     if (refreshInFlight.current) return refreshInFlight.current;
     const task = Promise.all([
       timeClock.companies(true),
+      timeClock.devices(),
       timeClock.sessions({ limit: "200" }),
       timeClock.status(),
       timeClock.retrievals(),
     ])
-      .then(([nextCompanies, nextSessions, nextStatus, nextRetrievals]) => {
-        setCompanies(nextCompanies);
-        setSessions(nextSessions);
-        setStatus(nextStatus);
-        setRetrievals(nextRetrievals);
-        setError(null);
-      })
+      .then(
+        ([
+          nextCompanies,
+          nextDevices,
+          nextSessions,
+          nextStatus,
+          nextRetrievals,
+        ]) => {
+          setCompanies(nextCompanies);
+          setDevices(nextDevices);
+          setSessions(nextSessions);
+          setStatus(nextStatus);
+          setRetrievals(nextRetrievals);
+          setError(null);
+        },
+      )
       .catch((cause: unknown) =>
         setError(
           cause instanceof Error
@@ -156,6 +169,7 @@ export function useTimeClock(): TimeClockData {
 
   return {
     companies,
+    devices,
     activeCompanies,
     sessions,
     retrievals,

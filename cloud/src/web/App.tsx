@@ -10,12 +10,14 @@ import { navigate, useRoute, type Route } from "./router";
 import { usePeriods } from "./use-periods";
 import { useTimeClock } from "./use-time-clock";
 import { Dashboard } from "./views/Dashboard";
+import { Devices } from "./views/Devices";
 import { History } from "./views/History";
 import { Settings } from "./views/Settings";
 
 const NAV: Array<{ route: Route; label: string }> = [
   { route: "dashboard", label: "Dashboard" },
   { route: "history", label: "History" },
+  { route: "devices", label: "Devices" },
   { route: "settings", label: "Settings" },
 ];
 
@@ -88,6 +90,7 @@ export function App() {
         )}
         {route === "dashboard" && <Dashboard data={data} periods={periods} />}
         {route === "history" && <History data={data} />}
+        {route === "devices" && <Devices data={data} />}
         {route === "settings" && <Settings data={data} />}
       </main>
     </div>

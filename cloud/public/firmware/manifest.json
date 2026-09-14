@@ -1,0 +1,7 @@
+{
+  "name": "Time Switch",
+  "version": "0.2.0",
+  "chipFamily": "ESP32-C3",
+  "path": "/firmware/time-switch-esp32c3.bin",
+  "offset": 0
+}

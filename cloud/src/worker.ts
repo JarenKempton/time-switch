@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { authenticateDevice } from "./lib/auth";
 import { requireDashboardAccess } from "./lib/cloudflare-access";
 import { ApiError, errorResponse } from "./lib/http";
 import { TimeClock, type TimeClockEnv } from "./time-clock";
@@ -11,7 +10,8 @@ const SECURITY_HEADERS = {
     "default-src 'self'; img-src 'self' https: data:; connect-src 'self' wss: ws:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   "cross-origin-opener-policy": "same-origin",
   "cross-origin-resource-policy": "same-origin",
-  "permissions-policy": "camera=(), microphone=(), geolocation=()",
+  "permissions-policy":
+    "camera=(), microphone=(), geolocation=(), serial=(self)",
   "referrer-policy": "no-referrer",
   "strict-transport-security": "max-age=31536000; includeSubDomains",
   "x-content-type-options": "nosniff",
@@ -54,16 +54,7 @@ app.all("/device/*", async (context) => {
   if (request.method !== "POST") {
     throw new ApiError(405, "method_not_allowed", "Method not allowed.");
   }
-  const body = await request.text();
-  await authenticateDevice(request, body, context.env);
-  const internalRequest = new Request(request.url, {
-    method: request.method,
-    headers: {
-      "content-type": request.headers.get("content-type") ?? "application/json",
-    },
-    body,
-  });
-  return clock(context.env).fetch(internalRequest);
+  return clock(context.env).fetch(request);
 });
 
 app.all("/api/*", (context) => clock(context.env).fetch(context.req.raw));

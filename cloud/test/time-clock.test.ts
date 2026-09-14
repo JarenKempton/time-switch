@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { TimeClockEnv } from "../src/time-clock";
 import worker from "../src/worker";
 
-const DEVICE_SECRET = "test-secret-that-is-longer-than-thirty-two-bytes";
 const workerFetch = worker.fetch as (
   request: Request,
   env: TimeClockEnv,
@@ -24,7 +23,12 @@ function dashboardFetch(path: string, init?: RequestInit): Promise<Response> {
   );
 }
 
-async function signedDeviceHeaders(path: string, body: string) {
+async function signedDeviceHeaders(
+  path: string,
+  body: string,
+  deviceId: string,
+  deviceSecret: string,
+) {
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -35,7 +39,7 @@ async function signedDeviceHeaders(path: string, body: string) {
   ).join("");
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(DEVICE_SECRET),
+    new TextEncoder().encode(deviceSecret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
@@ -50,7 +54,7 @@ async function signedDeviceHeaders(path: string, body: string) {
   ).join("");
   return {
     "content-type": "application/json",
-    "x-time-switch-device": "desk-panel",
+    "x-time-switch-device": deviceId,
     "x-time-switch-signature": `v1=${signatureHex}`,
     "x-time-switch-timestamp": timestamp,
   };
@@ -73,13 +77,44 @@ async function createCompany(name = "Northstar") {
   });
 }
 
+async function provisionDevice(name = "Desk panel") {
+  const created = await request<{
+    data: { device: { id: string }; setupToken: string };
+  }>("/api/v1/devices", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+  const provisioned = await SELF.fetch(
+    "https://example.test/device/v1/provision",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        deviceId: created.body.data.device.id,
+        setupToken: created.body.data.setupToken,
+        firmwareVersion: "test-1.0.0",
+      }),
+    },
+  );
+  const body = (await provisioned.json()) as {
+    data: { deviceId: string; secret: string };
+  };
+  return body.data;
+}
+
 describe("time clock API", () => {
   it("verifies device authentication and migrated storage through health", async () => {
+    const device = await provisionDevice();
     const path = "/device/v1/health";
     const body = "{}";
     const response = await SELF.fetch(`https://example.test${path}`, {
       method: "POST",
-      headers: await signedDeviceHeaders(path, body),
+      headers: await signedDeviceHeaders(
+        path,
+        body,
+        device.deviceId,
+        device.secret,
+      ),
       body,
     });
     expect(response.status).toBe(200);
@@ -88,6 +123,89 @@ describe("time clock API", () => {
     });
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("x-request-id")).toBeTruthy();
+  });
+
+  it("registers, provisions, and reports device heartbeats", async () => {
+    const device = await provisionDevice("Office panel");
+    const path = "/device/v1/heartbeat";
+    const body = JSON.stringify({ firmwareVersion: "test-1.1.0" });
+    const heartbeat = await SELF.fetch(`https://example.test${path}`, {
+      method: "POST",
+      headers: await signedDeviceHeaders(
+        path,
+        body,
+        device.deviceId,
+        device.secret,
+      ),
+      body,
+    });
+    expect(heartbeat.status).toBe(200);
+
+    const listed = await request<{
+      data: Array<{
+        id: string;
+        firmwareVersion: string;
+        provisionedAt: string;
+        lastSeenAt: string;
+        secret?: string;
+      }>;
+    }>("/api/v1/devices");
+    expect(listed.body.data).toHaveLength(1);
+    expect(listed.body.data[0]).toMatchObject({
+      id: device.deviceId,
+      firmwareVersion: "test-1.1.0",
+    });
+    expect(listed.body.data[0].provisionedAt).toBeTruthy();
+    expect(listed.body.data[0].lastSeenAt).toBeTruthy();
+    expect(listed.body.data[0].secret).toBeUndefined();
+  });
+
+  it("renews setup for an unprovisioned device without duplicating it", async () => {
+    const create = () =>
+      request<{
+        data: { device: { id: string }; setupToken: string };
+      }>("/api/v1/devices", {
+        method: "POST",
+        body: JSON.stringify({ name: "Retry panel" }),
+      });
+    const first = await create();
+    const second = await create();
+    expect(second.body.data.device.id).toBe(first.body.data.device.id);
+    expect(second.body.data.setupToken).not.toBe(first.body.data.setupToken);
+
+    const staleToken = await SELF.fetch(
+      "https://example.test/device/v1/provision",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deviceId: first.body.data.device.id,
+          setupToken: first.body.data.setupToken,
+          firmwareVersion: "test-1.0.0",
+        }),
+      },
+    );
+    expect(staleToken.status).toBe(401);
+
+    const currentToken = await SELF.fetch(
+      "https://example.test/device/v1/provision",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deviceId: second.body.data.device.id,
+          setupToken: second.body.data.setupToken,
+          firmwareVersion: "test-1.0.0",
+        }),
+      },
+    );
+    expect(currentToken.status).toBe(200);
+
+    const listed = await request<{ data: Array<{ id: string }> }>(
+      "/api/v1/devices",
+    );
+    expect(listed.body.data).toHaveLength(1);
+    expect(listed.body.data[0].id).toBe(first.body.data.device.id);
   });
 
   it("stores per-company pay-period settings", async () => {

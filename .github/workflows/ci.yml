@@ -43,3 +43,16 @@ jobs:
           esp_idf_version: v5.3.5
           target: esp32c3
           path: firmware
+      - name: Build browser-flashable image
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
+        with:
+          esp_idf_version: v5.3.5
+          target: esp32c3
+          path: firmware
+          command: cd build && esptool.py --chip esp32c3 merge_bin -o ../../cloud/public/firmware/time-switch-esp32c3.bin @flash_args
+      - name: Upload browser firmware
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: time-switch-esp32c3-${{ github.sha }}
+          path: cloud/public/firmware/time-switch-esp32c3.bin
+          if-no-files-found: error

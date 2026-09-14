@@ -26,7 +26,19 @@ With the angled switch terminals on the right and A/B/C/D labeled counter-clockw
 
 Insulate terminal D. The firmware uses the ESP32's internal pull-ups, so do not apply external voltage to either switch input.
 
-## 2. Build and flash the ESP32
+## 2. Add the device from the dashboard
+
+Open **Devices** in desktop Chrome or Edge, connect the ESP32 over USB, and choose **Add device**. The dashboard:
+
+1. Identifies the connected chip.
+2. Installs the current ESP32-C3 firmware.
+3. Lets you select the companies for the left and right positions.
+4. Sends the Wi-Fi credentials directly from the browser to the ESP32 over USB.
+5. Waits for the controller's first authenticated check-in.
+
+The Wi-Fi password never reaches the Worker or its database. Safari and iOS can display device status but do not support the browser installer.
+
+## 3. Manual firmware development
 
 ```sh
 source /path/to/esp-idf/export.sh
@@ -38,29 +50,29 @@ idf.py -p /dev/cu.usbmodemXXXX flash monitor
 
 Replace `/dev/cu.usbmodemXXXX` with the serial port that appears when the board is connected. Exit the monitor with `Ctrl+]`.
 
-## 3. Create your companies
+## 4. Create your companies
 
 Open the dashboard, select **Settings**, and add both companies. Copy the UUID shown under each company; those values determine what the left and right positions track.
 
-## 4. Configure the ESP32
+## 5. Manual serial configuration
 
-In the serial monitor, enter these commands one at a time:
+The dashboard is the supported provisioning path. For firmware debugging, the same serial protocol is available in the ESP-IDF monitor:
 
 ```text
 set wifi_ssid <network name>
 set wifi_password <network password>
 set api_url https://time.jarenkempton.dev
-set device_id desk-panel
-set device_secret <device secret>
+set device_id <device UUID created by the dashboard>
+set provisioning_token <one-time setup token created by the dashboard>
 set left_company_id <left company UUID>
 set right_company_id <right company UUID>
 show
 reboot
 ```
 
-`show` confirms which values are stored while hiding the Wi-Fi password and device secret. Configuration survives power loss.
+`show` confirms which values are stored while hiding the Wi-Fi password, setup token, and device secret. The controller exchanges the one-time token for its own credential after joining Wi-Fi. Configuration survives power loss.
 
-## 5. Verify it
+## 6. Verify it
 
 1. Leave the switch in the middle and reboot the board.
 2. Wait for `Wi-Fi connected` and `Network time synchronized` in the monitor.
@@ -79,7 +91,7 @@ cp .dev.vars.example .dev.vars
 pnpm dev --host 0.0.0.0
 ```
 
-Put a random device secret of at least 32 bytes in `.dev.vars`. That file is ignored by Git.
+No local secret is required. Device credentials are created during provisioning and remain out of source control.
 
 Before opening a pull request, run:
 
@@ -91,14 +103,15 @@ pnpm test
 pnpm deploy:check
 ```
 
-The GitHub Actions workflow also builds the ESP32 firmware. Database changes are defined with Drizzle in `cloud/src/db/schema.ts`; generate migrations with `pnpm migrate:generate` from `cloud/`.
+The GitHub Actions workflow builds both the ESP32 project and the merged image consumed by the browser installer. Database changes are defined with Drizzle in `cloud/src/db/schema.ts`; generate migrations with `pnpm migrate:generate` from `cloud/`.
 
 ## Useful console commands
 
 ```text
 show         Display stored configuration with secrets redacted
+identify     Report the model, firmware, and provisioning protocol
 reboot       Restart the controller
 clear_state  Clear the active session marker and offline queue
 ```
 
-Device requests use HTTPS and HMAC signing. Cloudflare Access protects the dashboard. Fingerprints and biometric templates never enter this service.
+Each controller receives a separate, revocable credential and signs requests over HTTPS. Cloudflare Access protects the dashboard. Fingerprints and biometric templates never enter this service.

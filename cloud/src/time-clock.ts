@@ -9,12 +9,15 @@ import { Hono } from "hono";
 import migrations from "../drizzle/migrations";
 import {
   companies,
+  devices,
   hourRetrievals,
   sessions,
   type Company,
+  type Device,
   type HourRetrieval,
   type Session,
 } from "./db/schema";
+import { authenticateDevice, sha256Hex } from "./lib/auth";
 import {
   ApiError,
   errorResponse,
@@ -24,9 +27,12 @@ import {
 } from "./lib/http";
 import {
   createCompanySchema,
+  createDeviceSchema,
   createRetrievalSchema,
   deviceStartSessionSchema,
+  heartbeatDeviceSchema,
   parseDate,
+  provisionDeviceSchema,
   startSessionSchema,
   stopSessionSchema,
   updateCompanySchema,
@@ -36,8 +42,6 @@ import {
 export interface TimeClockEnv {
   TIME_CLOCK: DurableObjectNamespace<TimeClock>;
   ASSETS: Fetcher;
-  DEVICE_HMAC_SECRET?: string;
-  DEVICE_ID: string;
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
@@ -54,9 +58,43 @@ interface LiveMessage {
     | "session.stopped"
     | "session.updated"
     | "company.changed"
+    | "device.changed"
     | "retrieval.changed";
   status: { activeSession: SessionWithCompany | null; serverTime: string };
   session?: SessionWithCompany;
+}
+
+interface DeviceView {
+  id: string;
+  name: string;
+  firmwareVersion: string | null;
+  provisionedAt: Date | null;
+  lastSeenAt: Date | null;
+  revokedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const SETUP_TOKEN_LIFETIME_MS = 15 * 60 * 1000;
+
+function randomHex(byteLength: number): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(byteLength));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
+}
+
+function deviceView(device: Device): DeviceView {
+  return {
+    id: device.id,
+    name: device.name,
+    firmwareVersion: device.firmwareVersion,
+    provisionedAt: device.provisionedAt,
+    lastSeenAt: device.lastSeenAt,
+    revokedAt: device.revokedAt,
+    createdAt: device.createdAt,
+    updatedAt: device.updatedAt,
+  };
 }
 
 function queryNumber(
@@ -75,6 +113,7 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
   private readonly app = new Hono();
   private readonly db: DrizzleSqliteDODatabase<{
     companies: typeof companies;
+    devices: typeof devices;
     sessions: typeof sessions;
     hourRetrievals: typeof hourRetrievals;
   }>;
@@ -82,7 +121,7 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
   constructor(ctx: DurableObjectState, env: TimeClockEnv) {
     super(ctx, env);
     this.db = drizzle(ctx.storage, {
-      schema: { companies, sessions, hourRetrievals },
+      schema: { companies, devices, sessions, hourRetrievals },
       logger: false,
     });
     ctx.blockConcurrencyWhile(async () => {
@@ -106,6 +145,12 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     );
     this.app.all("/api/v1/companies", (context) =>
       this.handleCompanies(context.req.raw),
+    );
+    this.app.all("/api/v1/devices", (context) =>
+      this.handleDevices(context.req.raw),
+    );
+    this.app.all("/api/v1/devices/:id", (context) =>
+      this.handleDevice(context.req.raw, context.req.param("id")),
     );
     this.app.all("/api/v1/companies/:id", (context) =>
       this.handleCompany(
@@ -148,25 +193,226 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
         ? this.exportCsv(new URL(context.req.url))
         : methodNotAllowed(["GET"]),
     );
-    this.app.all("/device/v1/sessions/start", (context) =>
+    this.app.all("/device/v1/provision", (context) =>
       context.req.method === "POST"
-        ? this.handleDeviceStart(context.req.raw)
+        ? this.provisionDevice(context.req.raw)
         : methodNotAllowed(["POST"]),
+    );
+    this.app.all("/device/v1/sessions/start", (context) =>
+      this.authenticatedDeviceRequest(context.req.raw, (request) =>
+        request.method === "POST"
+          ? this.handleDeviceStart(request)
+          : methodNotAllowed(["POST"]),
+      ),
     );
     this.app.all("/device/v1/sessions/:id/stop", (context) =>
-      context.req.method === "POST"
-        ? this.handleStop(context.req.raw, context.req.param("id"))
-        : methodNotAllowed(["POST"]),
+      this.authenticatedDeviceRequest(context.req.raw, (request) =>
+        request.method === "POST"
+          ? this.handleStop(request, context.req.param("id"))
+          : methodNotAllowed(["POST"]),
+      ),
     );
     this.app.all("/device/v1/health", (context) =>
-      context.req.method === "POST"
-        ? this.health()
-        : methodNotAllowed(["POST"]),
+      this.authenticatedDeviceRequest(context.req.raw, (request) =>
+        request.method === "POST" ? this.health() : methodNotAllowed(["POST"]),
+      ),
+    );
+    this.app.all("/device/v1/heartbeat", (context) =>
+      this.authenticatedDeviceRequest(context.req.raw, (request, device) =>
+        request.method === "POST"
+          ? this.heartbeatDevice(request, device)
+          : methodNotAllowed(["POST"]),
+      ),
     );
     this.app.notFound(() =>
       errorResponse(new ApiError(404, "not_found", "Route not found.")),
     );
     this.app.onError((error) => errorResponse(this.normalizeError(error)));
+  }
+
+  private handleDevices(request: Request): Response | Promise<Response> {
+    if (request.method === "GET") {
+      return ok(
+        this.db
+          .select()
+          .from(devices)
+          .orderBy(asc(devices.name))
+          .all()
+          .map(deviceView),
+      );
+    }
+    if (request.method === "POST") return this.createDevice(request);
+    return methodNotAllowed(["GET", "POST"]);
+  }
+
+  private async createDevice(request: Request): Promise<Response> {
+    const input = createDeviceSchema.parse(await readJson(request));
+    const now = new Date();
+    const setupToken = randomHex(32);
+    const existing = this.db
+      .select()
+      .from(devices)
+      .where(eq(devices.name, input.name))
+      .get();
+    if (existing && !existing.provisionedAt && !existing.revokedAt) {
+      const updated = {
+        ...existing,
+        setupTokenHash: await sha256Hex(setupToken),
+        setupTokenExpiresAt: new Date(now.getTime() + SETUP_TOKEN_LIFETIME_MS),
+        updatedAt: now,
+      };
+      this.db
+        .update(devices)
+        .set({
+          setupTokenHash: updated.setupTokenHash,
+          setupTokenExpiresAt: updated.setupTokenExpiresAt,
+          updatedAt: now,
+        })
+        .where(eq(devices.id, existing.id))
+        .run();
+      this.broadcast({ type: "device.changed", status: this.getStatus() });
+      return ok({ device: deviceView(updated), setupToken }, { status: 201 });
+    }
+    if (existing) {
+      throw new ApiError(
+        409,
+        "device_name_taken",
+        "A device with that name already exists.",
+      );
+    }
+    const device: Device = {
+      id: crypto.randomUUID(),
+      name: input.name,
+      secret: null,
+      setupTokenHash: await sha256Hex(setupToken),
+      setupTokenExpiresAt: new Date(now.getTime() + SETUP_TOKEN_LIFETIME_MS),
+      firmwareVersion: null,
+      provisionedAt: null,
+      lastSeenAt: null,
+      revokedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.insert(devices).values(device).run();
+    this.broadcast({ type: "device.changed", status: this.getStatus() });
+    return ok({ device: deviceView(device), setupToken }, { status: 201 });
+  }
+
+  private handleDevice(request: Request, id: string): Response {
+    if (!zUuid(id))
+      throw new ApiError(400, "invalid_id", "Device ID is invalid.");
+    if (request.method !== "DELETE") return methodNotAllowed(["DELETE"]);
+    const existing = this.db
+      .select()
+      .from(devices)
+      .where(eq(devices.id, id))
+      .get();
+    if (!existing)
+      throw new ApiError(404, "device_not_found", "Device not found.");
+    const now = new Date();
+    this.db
+      .update(devices)
+      .set({
+        secret: null,
+        setupTokenHash: null,
+        setupTokenExpiresAt: null,
+        revokedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(devices.id, id))
+      .run();
+    this.broadcast({ type: "device.changed", status: this.getStatus() });
+    return ok({ id });
+  }
+
+  private async provisionDevice(request: Request): Promise<Response> {
+    const input = provisionDeviceSchema.parse(await readJson(request));
+    const device = this.db
+      .select()
+      .from(devices)
+      .where(eq(devices.id, input.deviceId))
+      .get();
+    const tokenHash = await sha256Hex(input.setupToken);
+    if (
+      !device ||
+      device.revokedAt ||
+      !device.setupTokenHash ||
+      device.setupTokenHash !== tokenHash ||
+      !device.setupTokenExpiresAt ||
+      device.setupTokenExpiresAt.getTime() < Date.now()
+    ) {
+      throw new ApiError(
+        401,
+        "invalid_setup_token",
+        "Device setup authorization is invalid or expired.",
+      );
+    }
+
+    const now = new Date();
+    const secret = randomHex(32);
+    this.db
+      .update(devices)
+      .set({
+        secret,
+        setupTokenHash: null,
+        setupTokenExpiresAt: null,
+        firmwareVersion: input.firmwareVersion,
+        provisionedAt: now,
+        lastSeenAt: now,
+        updatedAt: now,
+      })
+      .where(eq(devices.id, device.id))
+      .run();
+    this.broadcast({ type: "device.changed", status: this.getStatus() });
+    return ok({ deviceId: device.id, secret });
+  }
+
+  private async authenticatedDeviceRequest(
+    request: Request,
+    handler: (request: Request, device: Device) => Response | Promise<Response>,
+  ): Promise<Response> {
+    const body = await request.text();
+    const deviceId = request.headers.get("x-time-switch-device");
+    const device = deviceId
+      ? this.db.select().from(devices).where(eq(devices.id, deviceId)).get()
+      : undefined;
+    if (!device || !device.secret || device.revokedAt) {
+      throw new ApiError(
+        401,
+        "invalid_device_signature",
+        "Device authentication failed.",
+      );
+    }
+    await authenticateDevice(request, body, device.id, device.secret);
+    const now = new Date();
+    this.db
+      .update(devices)
+      .set({ lastSeenAt: now, updatedAt: now })
+      .where(eq(devices.id, device.id))
+      .run();
+    const forwarded = new Request(request, { body });
+    const response = await handler(forwarded, { ...device, lastSeenAt: now });
+    this.broadcast({ type: "device.changed", status: this.getStatus() });
+    return response;
+  }
+
+  private async heartbeatDevice(
+    request: Request,
+    device: Device,
+  ): Promise<Response> {
+    const input = heartbeatDeviceSchema.parse(await readJson(request));
+    const now = new Date();
+    this.db
+      .update(devices)
+      .set({ firmwareVersion: input.firmwareVersion, updatedAt: now })
+      .where(eq(devices.id, device.id))
+      .run();
+    const updated = this.db
+      .select()
+      .from(devices)
+      .where(eq(devices.id, device.id))
+      .get()!;
+    return ok(deviceView(updated));
   }
 
   private handleCompanies(request: Request): Response | Promise<Response> {
@@ -346,6 +592,7 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     // checked-in Drizzle migrations were applied, without exposing ledger data.
     this.db.select({ id: companies.id }).from(companies).limit(1).all();
     this.db.select({ id: sessions.id }).from(sessions).limit(1).all();
+    this.db.select({ id: devices.id }).from(devices).limit(1).all();
     this.db
       .select({ id: hourRetrievals.id })
       .from(hourRetrievals)

@@ -50,16 +50,10 @@ describe("device authentication", () => {
     });
 
     await expect(
-      authenticateDevice(request, body, {
-        DEVICE_ID: "desk-panel",
-        DEVICE_HMAC_SECRET: secret,
-      }),
+      authenticateDevice(request, body, "desk-panel", secret),
     ).resolves.toBeUndefined();
     await expect(
-      authenticateDevice(request, `${body} `, {
-        DEVICE_ID: "desk-panel",
-        DEVICE_HMAC_SECRET: secret,
-      }),
+      authenticateDevice(request, `${body} `, "desk-panel", secret),
     ).rejects.toMatchObject({ status: 401, code: "invalid_device_signature" });
   });
 });
