@@ -10,17 +10,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+} from "@/web/components/ui/alert-dialog";
+import { Button } from "@/web/components/ui/button";
+import { Input } from "@/web/components/ui/input";
+import { Label } from "@/web/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@/web/components/ui/select";
 import {
   Table,
   TableBody,
@@ -28,8 +28,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { dateOnly, toDateInput } from "../../lib/pay-period";
+} from "@/web/components/ui/table";
+import { dateOnly, toDateInput } from "../lib/pay-period";
 import { timeClock, type Session, type Summary } from "../api";
 import { CompanyMark, companyStyle } from "../components/CompanyMark";
 import { SessionDialog } from "../components/SessionDialog";

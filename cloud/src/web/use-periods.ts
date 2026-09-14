@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { currentPeriod, type CurrentPeriod } from "../lib/pay-period";
+import { currentPeriod, type CurrentPeriod } from "./lib/pay-period";
 import { timeClock, type Company, type Retrieval, type Status } from "./api";
 
 export interface CompanyPeriod {

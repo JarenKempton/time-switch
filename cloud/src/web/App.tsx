@@ -1,6 +1,10 @@
 import { XIcon } from "lucide-react";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+} from "@/web/components/ui/alert";
+import { Button } from "@/web/components/ui/button";
 import { formatClock } from "./format";
 import { navigate, useRoute, type Route } from "./router";
 import { usePeriods } from "./use-periods";

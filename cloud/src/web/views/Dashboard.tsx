@@ -6,9 +6,9 @@ import {
   ReceiptTextIcon,
   SquareIcon,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { describeCadence } from "../../lib/pay-period";
+import { Button } from "@/web/components/ui/button";
+import { Skeleton } from "@/web/components/ui/skeleton";
+import { describeCadence } from "../lib/pay-period";
 import { timeClock, type Company } from "../api";
 import { CompanyMark, companyStyle } from "../components/CompanyMark";
 import { RetrieveHoursDialog } from "../components/RetrieveHoursDialog";

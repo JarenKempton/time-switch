@@ -1,4 +1,4 @@
-import type { PayPeriodCadence } from "../db/schema";
+import type { PayPeriodCadence } from "../../db/schema";
 
 export interface PayPeriodWindow {
   start: Date;

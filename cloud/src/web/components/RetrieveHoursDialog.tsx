@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { DownloadIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/web/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -8,18 +8,18 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Textarea } from "@/components/ui/textarea";
+} from "@/web/components/ui/dialog";
+import { Input } from "@/web/components/ui/input";
+import { Label } from "@/web/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/web/components/ui/radio-group";
+import { Textarea } from "@/web/components/ui/textarea";
 import {
   dateOnly,
   nextPeriodOptions,
   payPeriodWindow,
   toDateInput,
   type NextPeriodChoice,
-} from "../../lib/pay-period";
+} from "../lib/pay-period";
 import { timeClock, type CompanyHours } from "../api";
 import {
   formatDate,

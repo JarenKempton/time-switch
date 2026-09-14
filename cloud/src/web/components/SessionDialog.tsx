@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/web/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -7,17 +7,17 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+} from "@/web/components/ui/dialog";
+import { Input } from "@/web/components/ui/input";
+import { Label } from "@/web/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+} from "@/web/components/ui/select";
+import { Textarea } from "@/web/components/ui/textarea";
 import { timeClock, type Company, type Session } from "../api";
 
 function toLocalInput(value: string | null): string {

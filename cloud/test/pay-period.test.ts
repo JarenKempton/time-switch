@@ -4,7 +4,7 @@ import {
   nextPeriodOptions,
   payPeriodWindow,
   toDateInput,
-} from "../src/lib/pay-period";
+} from "../src/web/lib/pay-period";
 
 const baseCompany = {
   createdAt: "2026-01-01T00:00:00.000Z",

@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/web/lib/utils";
 import type { Company } from "../api";
 
 export const DEFAULT_COMPANY_COLOR = "#62e6a7";

@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { PencilIcon, PlusIcon } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { describeCadence, upcomingPeriods } from "../../lib/pay-period";
+import { Badge } from "@/web/components/ui/badge";
+import { Button } from "@/web/components/ui/button";
+import { Switch } from "@/web/components/ui/switch";
+import { Label } from "@/web/components/ui/label";
+import { describeCadence, upcomingPeriods } from "../lib/pay-period";
 import type { Company } from "../api";
 import { CompanyDialog } from "../components/CompanyDialog";
 import { CompanyMark, companyStyle } from "../components/CompanyMark";

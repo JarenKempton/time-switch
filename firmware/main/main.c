@@ -34,10 +34,11 @@
 #define STATE_MAGIC 0x54535331U
 #define STORAGE_VERSION 1U
 #define MAX_PENDING_OPERATIONS 16
+#define MIN_VALID_UNIX_TIMESTAMP 1704067200LL  // 2024-01-01T00:00:00Z
 
 typedef enum {
   SWITCH_LEFT,
-  SWITCH_CLOCKED_OUT,
+  SWITCH_MIDDLE,
   SWITCH_RIGHT,
   SWITCH_INVALID,
 } switch_state_t;
@@ -86,13 +87,15 @@ static bool clock_was_ready;
 static bool clock_ready(void) {
   time_t now = 0;
   time(&now);
-  return now > 1704067200;
+  // The ESP32 starts with an unset clock. Do not record bogus timestamps before
+  // SNTP has supplied a plausible current time.
+  return now >= MIN_VALID_UNIX_TIMESTAMP;
 }
 
 static const char *switch_state_name(switch_state_t value) {
   switch (value) {
     case SWITCH_LEFT: return "LEFT";
-    case SWITCH_CLOCKED_OUT: return "CLOCKED_OUT";
+    case SWITCH_MIDDLE: return "MIDDLE";
     case SWITCH_RIGHT: return "RIGHT";
     default: return "INVALID";
   }
@@ -102,7 +105,7 @@ static switch_state_t read_switch(void) {
   const bool left_active = gpio_get_level(SWITCH_LEFT_GPIO) == 0;
   const bool right_active = gpio_get_level(SWITCH_RIGHT_GPIO) == 0;
   if (left_active && !right_active) return SWITCH_LEFT;
-  if (!left_active && !right_active) return SWITCH_CLOCKED_OUT;
+  if (!left_active && !right_active) return SWITCH_MIDDLE;
   if (!left_active && right_active) return SWITCH_RIGHT;
   return SWITCH_INVALID;
 }

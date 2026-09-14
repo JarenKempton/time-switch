@@ -10,8 +10,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+} from "@/web/components/ui/alert-dialog";
+import { Button } from "@/web/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -19,23 +19,23 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+} from "@/web/components/ui/dialog";
+import { Input } from "@/web/components/ui/input";
+import { Label } from "@/web/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@/web/components/ui/select";
 import { timeClock, type Company } from "../api";
 import {
   cadenceLabels,
   describeCadence,
   toDateInput,
   upcomingPeriods,
-} from "../../lib/pay-period";
+} from "../lib/pay-period";
 import { formatRange } from "../format";
 import { DEFAULT_COMPANY_COLOR } from "./CompanyMark";
 import type { PayPeriodCadence } from "../../db/schema";
