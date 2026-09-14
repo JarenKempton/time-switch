@@ -21,7 +21,7 @@ The Worker deliberately fails closed when Cloudflare Access identity is absent. 
 Create two self-hosted Access applications or path rules, in this order of specificity:
 
 1. `time.jarenkempton.dev/device/*` — Bypass. This narrowly exposes only the device namespace; every request there must still pass the Worker's HMAC validation.
-2. `time.jarenkempton.dev/*` — Allow only Jaren's identity. This protects the dashboard, browser API, CSV exports, and live WebSocket.
+2. `time.jarenkempton.dev` — Allow only Jaren's identity. Leaving the path empty protects the hostname root and every path, including the dashboard, browser API, CSV exports, and live WebSocket.
 
 Cloudflare applies the most specific matching application path. Do not add a wider bypass rule and do not place device endpoints under `/api/*`.
 
