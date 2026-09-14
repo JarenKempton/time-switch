@@ -1,0 +1,488 @@
+import { env, SELF } from "cloudflare:test";
+import { describe, expect, it } from "vitest";
+import type { TimeClockEnv } from "../src/time-clock";
+import worker from "../src/worker";
+
+const workerFetch = worker.fetch as (
+  request: Request,
+  env: TimeClockEnv,
+  ctx: ExecutionContext,
+) => Promise<Response>;
+const accessContext = {
+  access: {
+    aud: "test-audience",
+    getIdentity: async () => ({ email: "developer@example.test" }),
+  },
+} as ExecutionContext;
+
+function dashboardFetch(path: string, init?: RequestInit): Promise<Response> {
+  return workerFetch(
+    new Request(`https://example.test${path}`, init),
+    env as unknown as TimeClockEnv,
+    accessContext,
+  );
+}
+
+async function signedDeviceHeaders(
+  path: string,
+  body: string,
+  deviceId: string,
+  deviceSecret: string,
+) {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(body),
+  );
+  const bodyHash = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(deviceSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode([timestamp, "POST", path, bodyHash].join("\n")),
+  );
+  const signatureHex = Array.from(new Uint8Array(signature), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return {
+    "content-type": "application/json",
+    "x-time-switch-device": deviceId,
+    "x-time-switch-signature": `v1=${signatureHex}`,
+    "x-time-switch-timestamp": timestamp,
+  };
+}
+
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<{ status: number; body: T }> {
+  const headers = new Headers(init?.headers);
+  if (init?.body) headers.set("content-type", "application/json");
+  const response = await dashboardFetch(path, { ...init, headers });
+  return { status: response.status, body: (await response.json()) as T };
+}
+
+async function createCompany(name = "Northstar") {
+  return request<{ data: { id: string; name: string } }>("/api/v1/companies", {
+    method: "POST",
+    body: JSON.stringify({ name, color: "#62e6a7", logoUrl: "" }),
+  });
+}
+
+async function provisionDevice(name = "Desk panel") {
+  const created = await request<{
+    data: { device: { id: string }; setupToken: string };
+  }>("/api/v1/devices", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+  const provisioned = await SELF.fetch(
+    "https://example.test/device/v1/provision",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        deviceId: created.body.data.device.id,
+        setupToken: created.body.data.setupToken,
+        firmwareVersion: "test-1.0.0",
+      }),
+    },
+  );
+  const body = (await provisioned.json()) as {
+    data: { deviceId: string; secret: string };
+  };
+  return body.data;
+}
+
+describe("time clock API", () => {
+  it("verifies device authentication and migrated storage through health", async () => {
+    const device = await provisionDevice();
+    const path = "/device/v1/health";
+    const body = "{}";
+    const response = await SELF.fetch(`https://example.test${path}`, {
+      method: "POST",
+      headers: await signedDeviceHeaders(
+        path,
+        body,
+        device.deviceId,
+        device.secret,
+      ),
+      body,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      data: { ok: true, service: "time-switch", storage: "ready" },
+    });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-request-id")).toBeTruthy();
+  });
+
+  it("registers, provisions, and reports device heartbeats", async () => {
+    const device = await provisionDevice("Office panel");
+    const path = "/device/v1/heartbeat";
+    const body = JSON.stringify({ firmwareVersion: "test-1.1.0" });
+    const heartbeat = await SELF.fetch(`https://example.test${path}`, {
+      method: "POST",
+      headers: await signedDeviceHeaders(
+        path,
+        body,
+        device.deviceId,
+        device.secret,
+      ),
+      body,
+    });
+    expect(heartbeat.status).toBe(200);
+
+    const listed = await request<{
+      data: Array<{
+        id: string;
+        firmwareVersion: string;
+        provisionedAt: string;
+        lastSeenAt: string;
+        secret?: string;
+      }>;
+    }>("/api/v1/devices");
+    expect(listed.body.data).toHaveLength(1);
+    expect(listed.body.data[0]).toMatchObject({
+      id: device.deviceId,
+      firmwareVersion: "test-1.1.0",
+    });
+    expect(listed.body.data[0].provisionedAt).toBeTruthy();
+    expect(listed.body.data[0].lastSeenAt).toBeTruthy();
+    expect(listed.body.data[0].secret).toBeUndefined();
+  });
+
+  it("renews setup for an unprovisioned device without duplicating it", async () => {
+    const create = () =>
+      request<{
+        data: { device: { id: string }; setupToken: string };
+      }>("/api/v1/devices", {
+        method: "POST",
+        body: JSON.stringify({ name: "Retry panel" }),
+      });
+    const first = await create();
+    const second = await create();
+    expect(second.body.data.device.id).toBe(first.body.data.device.id);
+    expect(second.body.data.setupToken).not.toBe(first.body.data.setupToken);
+
+    const staleToken = await SELF.fetch(
+      "https://example.test/device/v1/provision",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deviceId: first.body.data.device.id,
+          setupToken: first.body.data.setupToken,
+          firmwareVersion: "test-1.0.0",
+        }),
+      },
+    );
+    expect(staleToken.status).toBe(401);
+
+    const currentToken = await SELF.fetch(
+      "https://example.test/device/v1/provision",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deviceId: second.body.data.device.id,
+          setupToken: second.body.data.setupToken,
+          firmwareVersion: "test-1.0.0",
+        }),
+      },
+    );
+    expect(currentToken.status).toBe(200);
+
+    const listed = await request<{ data: Array<{ id: string }> }>(
+      "/api/v1/devices",
+    );
+    expect(listed.body.data).toHaveLength(1);
+    expect(listed.body.data[0].id).toBe(first.body.data.device.id);
+  });
+
+  it("stores per-company pay-period settings", async () => {
+    const created = await request<{
+      data: {
+        id: string;
+        payPeriodCadence: string;
+        payPeriodAnchorDate: string;
+      };
+    }>("/api/v1/companies", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Payroll Test",
+        payPeriodCadence: "weekly",
+        payPeriodAnchorDate: "2026-09-07",
+      }),
+    });
+    expect(created.body.data).toMatchObject({
+      payPeriodCadence: "weekly",
+      payPeriodAnchorDate: "2026-09-07",
+    });
+
+    const updated = await request<{
+      data: { payPeriodCadence: string; payPeriodAnchorDate: string };
+    }>(`/api/v1/companies/${created.body.data.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        payPeriodCadence: "monthly",
+        payPeriodAnchorDate: "2026-09-15",
+      }),
+    });
+    expect(updated.body.data).toMatchObject({
+      payPeriodCadence: "monthly",
+      payPeriodAnchorDate: "2026-09-15",
+    });
+  });
+
+  it("pushes an initial snapshot and subsequent changes over WebSocket", async () => {
+    const response = await dashboardFetch("/api/v1/live", {
+      headers: { upgrade: "websocket" },
+    });
+    expect(response.status).toBe(101);
+    const socket = response.webSocket!;
+    const nextMessage = () =>
+      new Promise<Record<string, unknown>>((resolve) => {
+        socket.addEventListener(
+          "message",
+          (event) =>
+            resolve(JSON.parse(String(event.data)) as Record<string, unknown>),
+          { once: true },
+        );
+      });
+    const snapshotPromise = nextMessage();
+    socket.accept();
+    expect(await snapshotPromise).toMatchObject({ type: "snapshot" });
+
+    const changePromise = nextMessage();
+    await createCompany("Live Company");
+    expect(await changePromise).toMatchObject({ type: "company.changed" });
+    socket.close(1000, "Test complete");
+  });
+
+  it("creates companies and returns them alphabetically", async () => {
+    expect((await createCompany("Zebra")).status).toBe(201);
+    expect((await createCompany("Acme")).status).toBe(201);
+
+    const result = await request<{ data: Array<{ name: string }> }>(
+      "/api/v1/companies",
+    );
+    expect(result.status).toBe(200);
+    expect(result.body.data.map((company) => company.name)).toEqual([
+      "Acme",
+      "Zebra",
+    ]);
+  });
+
+  it("starts and stops an idempotent session", async () => {
+    const company = await createCompany();
+    const companyId = company.body.data.id;
+    const sessionId = "018f47a0-7b8c-4c5d-9e6f-0123456789ab";
+    const startedAt = "2026-09-12T15:30:00.000Z";
+    const endedAt = "2026-09-12T19:45:00.000Z";
+
+    const started = await request<{ data: { id: string; companyId: string } }>(
+      "/api/v1/sessions",
+      {
+        method: "POST",
+        body: JSON.stringify({ id: sessionId, companyId, startedAt }),
+      },
+    );
+    expect(started.status).toBe(201);
+    expect(started.body.data).toMatchObject({ id: sessionId, companyId });
+
+    const repeated = await request<{ data: { id: string } }>(
+      "/api/v1/sessions",
+      {
+        method: "POST",
+        body: JSON.stringify({ id: sessionId, companyId, startedAt }),
+      },
+    );
+    expect(repeated.status).toBe(200);
+
+    const stopped = await request<{ data: { durationSeconds: number } }>(
+      `/api/v1/sessions/${sessionId}/stop`,
+      {
+        method: "POST",
+        body: JSON.stringify({ endedAt }),
+      },
+    );
+    expect(stopped.status).toBe(200);
+    expect(stopped.body.data.durationSeconds).toBe(15_300);
+
+    const repeatedStop = await request<{ data: { durationSeconds: number } }>(
+      `/api/v1/sessions/${sessionId}/stop`,
+      {
+        method: "POST",
+        body: JSON.stringify({ endedAt }),
+      },
+    );
+    expect(repeatedStop.status).toBe(200);
+    expect(repeatedStop.body.data.durationSeconds).toBe(15_300);
+  });
+
+  it("rejects overlapping active sessions", async () => {
+    const first = await createCompany("First");
+    const second = await createCompany("Second");
+    await request("/api/v1/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        companyId: first.body.data.id,
+        startedAt: "2026-09-12T15:30:00.000Z",
+      }),
+    });
+
+    const conflict = await request<{ error: { code: string } }>(
+      "/api/v1/sessions",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          companyId: second.body.data.id,
+          startedAt: "2026-09-12T16:00:00.000Z",
+        }),
+      },
+    );
+    expect(conflict.status).toBe(409);
+    expect(conflict.body.error.code).toBe("session_already_active");
+  });
+
+  it("calculates totals clipped to the requested reporting range", async () => {
+    const company = await createCompany();
+    const companyId = company.body.data.id;
+    const sessionId = "018f47a0-7b8c-4c5d-9e6f-0123456789ab";
+    await request("/api/v1/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        id: sessionId,
+        companyId,
+        startedAt: "2026-09-12T09:00:00.000Z",
+      }),
+    });
+    await request(`/api/v1/sessions/${sessionId}/stop`, {
+      method: "POST",
+      body: JSON.stringify({ endedAt: "2026-09-12T13:00:00.000Z" }),
+    });
+
+    const summary = await request<{
+      data: { companies: Array<{ totalSeconds: number }> };
+    }>(
+      "/api/v1/summary?from=2026-09-12T10:00:00.000Z&to=2026-09-12T12:00:00.000Z",
+    );
+    expect(summary.body.data.companies[0].totalSeconds).toBe(7_200);
+  });
+});
+
+describe("hour retrievals", () => {
+  async function seedCompanyWithSession() {
+    const company = await createCompany("Retrieval Co");
+    const companyId = company.body.data.id;
+    const sessionId = "018f47a0-7b8c-4c5d-9e6f-0123456789ab";
+    await request("/api/v1/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        id: sessionId,
+        companyId,
+        startedAt: "2026-09-10T09:00:00.000Z",
+      }),
+    });
+    await request(`/api/v1/sessions/${sessionId}/stop`, {
+      method: "POST",
+      body: JSON.stringify({ endedAt: "2026-09-10T12:00:00.000Z" }),
+    });
+    return companyId;
+  }
+
+  it("reports company hours for a range", async () => {
+    const companyId = await seedCompanyWithSession();
+    const hours = await request<{
+      data: { totalSeconds: number; sessionCount: number };
+    }>(
+      `/api/v1/companies/${companyId}/hours?from=2026-09-01T00:00:00.000Z&to=2026-09-15T00:00:00.000Z`,
+    );
+    expect(hours.status).toBe(200);
+    expect(hours.body.data).toMatchObject({
+      totalSeconds: 10_800,
+      sessionCount: 1,
+    });
+  });
+
+  it("records a retrieval with a server-computed total and can re-anchor", async () => {
+    const companyId = await seedCompanyWithSession();
+    const created = await request<{
+      data: {
+        id: string;
+        totalSeconds: number;
+        nextPeriodEnd: string;
+        company: { payPeriodAnchorDate: string };
+      };
+    }>(`/api/v1/companies/${companyId}/retrievals`, {
+      method: "POST",
+      body: JSON.stringify({
+        periodStart: "2026-09-01T00:00:00.000Z",
+        periodEnd: "2026-09-12T15:00:00.000Z",
+        nextPeriodEnd: "2026-09-26T00:00:00.000Z",
+        note: "Invoice 42",
+        reanchorDate: "2026-09-12",
+      }),
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.totalSeconds).toBe(10_800);
+    expect(created.body.data.company.payPeriodAnchorDate).toBe("2026-09-12");
+
+    const list = await request<{ data: Array<{ id: string; note: string }> }>(
+      `/api/v1/retrievals?companyId=${companyId}`,
+    );
+    expect(list.body.data).toHaveLength(1);
+    expect(list.body.data[0].note).toBe("Invoice 42");
+
+    const overlap = await request<{ error: { code: string } }>(
+      `/api/v1/companies/${companyId}/retrievals`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          periodStart: "2026-09-10T00:00:00.000Z",
+          periodEnd: "2026-09-13T00:00:00.000Z",
+          nextPeriodEnd: "2026-09-26T00:00:00.000Z",
+        }),
+      },
+    );
+    expect(overlap.status).toBe(409);
+    expect(overlap.body.error.code).toBe("retrieval_overlap");
+
+    const removed = await request(
+      `/api/v1/retrievals/${created.body.data.id}`,
+      {
+        method: "DELETE",
+      },
+    );
+    expect(removed.status).toBe(200);
+    const after = await request<{ data: unknown[] }>(
+      `/api/v1/retrievals?companyId=${companyId}`,
+    );
+    expect(after.body.data).toHaveLength(0);
+  });
+
+  it("rejects a retrieval whose next period ends before it does", async () => {
+    const companyId = await seedCompanyWithSession();
+    const bad = await request<{ error: { code: string } }>(
+      `/api/v1/companies/${companyId}/retrievals`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          periodStart: "2026-09-01T00:00:00.000Z",
+          periodEnd: "2026-09-12T00:00:00.000Z",
+          nextPeriodEnd: "2026-09-11T00:00:00.000Z",
+        }),
+      },
+    );
+    expect(bad.status).toBe(422);
+  });
+});

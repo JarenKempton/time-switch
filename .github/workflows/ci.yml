@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  cloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.15.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: cloud/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: cloud
+      - run: pnpm format:check
+        working-directory: cloud
+      - run: pnpm check
+        working-directory: cloud
+      - run: pnpm test
+        working-directory: cloud
+      - name: Verify generated migrations are committed
+        run: pnpm migrate:generate && git diff --exit-code -- drizzle
+        working-directory: cloud
+      - run: pnpm deploy:check
+        working-directory: cloud
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
+        with:
+          esp_idf_version: v5.3.5
+          target: esp32c3
+          path: firmware
+      - name: Build browser-flashable image
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
+        with:
+          esp_idf_version: v5.3.5
+          target: esp32c3
+          path: firmware
+          command: cd build && esptool.py --chip esp32c3 merge_bin -o ../../cloud/public/firmware/time-switch-esp32c3.bin @flash_args
+      - name: Upload browser firmware
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: time-switch-esp32c3-${{ github.sha }}
+          path: cloud/public/firmware/time-switch-esp32c3.bin
+          if-no-files-found: error
