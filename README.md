@@ -34,13 +34,22 @@ Open **Devices** in desktop Chrome or Edge, connect the ESP32 over USB, and choo
 2. Installs the current ESP32-C3 firmware.
 3. Lets you select the companies for the left and right positions.
 4. Sends the Wi-Fi credentials directly from the browser to the ESP32 over USB.
-5. Waits for the controller's first authenticated check-in.
+5. Shows the controller's live Wi-Fi, network-time, and Cloudflare registration
+   status over USB.
+6. Finishes only after the controller's first authenticated check-in.
 
 Use **Configure** on an existing device to reinstall firmware and replace its
 Wi-Fi or switch mapping. Use **Delete** to remove an obsolete or incomplete
 registration; its existing credential stops working immediately.
 
 The Wi-Fi password never reaches the Worker or its database. Safari and iOS can display device status but do not support the browser installer.
+
+The controller uses 2.4 GHz 802.11b/g in 20 MHz mode, scans all channels for
+matching mesh access points, and gracefully leaves Wi-Fi before a reinstall.
+Setup reports the ESP-IDF reason code and signal level when the access point
+rejects or times out a connection; the progress indicator remains indeterminate
+during network registration and reaches 100% only after the service confirms the
+controller is online.
 
 ## 3. Manual firmware development
 
@@ -115,6 +124,7 @@ GitHub Actions builds the ESP32 project and merged browser image only when a pul
 show         Display stored configuration with secrets redacted
 identify     Report the model, firmware, and provisioning protocol
 reboot       Restart the controller
+prepare_install  Leave Wi-Fi cleanly before a firmware reinstall
 clear_state  Clear the active session marker and offline queue
 ```
 

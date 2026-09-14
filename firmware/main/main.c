@@ -19,6 +19,7 @@
 #include "esp_random.h"
 #include "esp_sntp.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -38,8 +39,10 @@
 #define STORAGE_VERSION 1U
 #define MAX_PENDING_OPERATIONS 16
 #define MIN_VALID_UNIX_TIMESTAMP 1704067200LL  // 2024-01-01T00:00:00Z
-#define FIRMWARE_VERSION "0.2.1"
+#define FIRMWARE_VERSION "0.2.2"
 #define HEARTBEAT_INTERVAL_MS 30000
+#define WIFI_RETRY_INITIAL_MS 1000
+#define WIFI_RETRY_MAX_MS 15000
 
 typedef enum {
   SWITCH_LEFT,
@@ -91,8 +94,77 @@ static device_config_t config;
 static persistent_state_t state;
 static SemaphoreHandle_t state_mutex;
 static EventGroupHandle_t wifi_events;
+static esp_timer_handle_t wifi_retry_timer;
+static uint32_t wifi_retry_delay_ms = WIFI_RETRY_INITIAL_MS;
+static bool wifi_reconnect_enabled = true;
 static bool clock_was_ready;
 static TickType_t last_heartbeat_tick;
+
+static void emit_status(const char *stage, const char *status) {
+  printf("TSJSON:{\"type\":\"network.status\",\"stage\":\"%s\",\"status\":\"%s\"}\n",
+         stage, status);
+  fflush(stdout);
+}
+
+static const char *wifi_reason_name(uint8_t reason) {
+  switch (reason) {
+    case WIFI_REASON_AUTH_EXPIRE: return "authentication-timeout";
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT: return "password-rejected";
+    case WIFI_REASON_AUTH_FAIL: return "authentication-failed";
+    case WIFI_REASON_ASSOC_FAIL: return "association-failed";
+    case WIFI_REASON_HANDSHAKE_TIMEOUT: return "handshake-timeout";
+    case WIFI_REASON_CONNECTION_FAIL: return "connection-failed";
+    case WIFI_REASON_NO_AP_FOUND: return "network-not-found";
+    case WIFI_REASON_NO_AP_FOUND_W_COMPATIBLE_SECURITY: return "incompatible-security";
+    case WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD: return "security-below-threshold";
+    default: return "disconnected";
+  }
+}
+
+static void emit_wifi_disconnected(const wifi_event_sta_disconnected_t *event) {
+  const uint8_t reason = event ? event->reason : 0;
+  const int8_t rssi = event ? event->rssi : -128;
+  printf("TSJSON:{\"type\":\"network.status\",\"stage\":\"wifi\",\"status\":\"disconnected\",\"reason\":%u,\"reasonName\":\"%s\",\"rssi\":%d}\n",
+         reason, wifi_reason_name(reason), rssi);
+  fflush(stdout);
+}
+
+static void emit_provisioning_failure(esp_err_t error, int http_status) {
+  printf("TSJSON:{\"type\":\"network.status\",\"stage\":\"provisioning\",\"status\":\"failed\",\"transportError\":%ld,\"httpStatus\":%d}\n",
+         (long)error, http_status);
+  fflush(stdout);
+}
+
+static void wifi_retry_callback(void *argument) {
+  (void)argument;
+  emit_status("wifi", "connecting");
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_connect());
+}
+
+static void schedule_wifi_retry(void) {
+  if (!wifi_retry_timer || !wifi_reconnect_enabled) return;
+  if (esp_timer_is_active(wifi_retry_timer)) {
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_timer_stop(wifi_retry_timer));
+  }
+  ESP_ERROR_CHECK_WITHOUT_ABORT(
+      esp_timer_start_once(wifi_retry_timer, wifi_retry_delay_ms * 1000ULL));
+  if (wifi_retry_delay_ms < WIFI_RETRY_MAX_MS) {
+    wifi_retry_delay_ms *= 2;
+    if (wifi_retry_delay_ms > WIFI_RETRY_MAX_MS) wifi_retry_delay_ms = WIFI_RETRY_MAX_MS;
+  }
+}
+
+static void prepare_network_shutdown(void) {
+  wifi_reconnect_enabled = false;
+  if (wifi_retry_timer && esp_timer_is_active(wifi_retry_timer)) {
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_timer_stop(wifi_retry_timer));
+  }
+  if (wifi_events && (xEventGroupGetBits(wifi_events) & WIFI_CONNECTED_BIT)) {
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_disconnect());
+    xEventGroupClearBits(wifi_events, WIFI_CONNECTED_BIT);
+    vTaskDelay(pdMS_TO_TICKS(250));
+  }
+}
 
 static bool clock_ready(void) {
   time_t now = 0;
@@ -369,6 +441,7 @@ static esp_err_t capture_response(esp_http_client_event_t *event) {
 }
 
 static bool provision_device(void) {
+  emit_status("provisioning", "connecting");
   char url[224];
   snprintf(url, sizeof(url), "%s/device/v1/provision", config.api_url);
   char body[256];
@@ -397,6 +470,7 @@ static bool provision_device(void) {
   const int status = result == ESP_OK ? esp_http_client_get_status_code(client) : 0;
   esp_http_client_cleanup(client);
   if (result != ESP_OK || status < 200 || status >= 300) {
+    emit_provisioning_failure(result, status);
     ESP_LOGW(TAG, "Device provisioning failed (%s, HTTP %d)", esp_err_to_name(result), status);
     return false;
   }
@@ -416,9 +490,11 @@ static bool provision_device(void) {
   }
   cJSON_Delete(document);
   if (!valid || config.device_secret[0] == '\0') {
+    emit_provisioning_failure(ESP_ERR_INVALID_RESPONSE, status);
     ESP_LOGE(TAG, "Provisioning response was invalid");
     return false;
   }
+  emit_status("provisioning", "complete");
   ESP_LOGI(TAG, "Device provisioning complete");
   return true;
 }
@@ -453,6 +529,7 @@ static void network_task(void *parameter) {
     if ((bits & WIFI_CONNECTED_BIT) && clock_ready()) {
       if (!clock_was_ready) {
         clock_was_ready = true;
+        emit_status("time", "ready");
         ESP_LOGI(TAG, "Network time synchronized");
       }
       if (config.device_secret[0] == '\0' && config.provisioning_token[0] != '\0') {
@@ -528,24 +605,34 @@ static void switch_task(void *parameter) {
 static void wifi_event_handler(void *argument, esp_event_base_t base,
                                int32_t event_id, void *event_data) {
   (void)argument;
-  (void)event_data;
-  if (base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-    esp_wifi_connect();
-  } else if (base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+  if (base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+    const wifi_event_sta_disconnected_t *disconnected = event_data;
     xEventGroupClearBits(wifi_events, WIFI_CONNECTED_BIT);
-    esp_wifi_connect();
+    emit_wifi_disconnected(disconnected);
+    schedule_wifi_retry();
   } else if (base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
     xEventGroupSetBits(wifi_events, WIFI_CONNECTED_BIT);
+    wifi_retry_delay_ms = WIFI_RETRY_INITIAL_MS;
+    if (esp_timer_is_active(wifi_retry_timer)) {
+      ESP_ERROR_CHECK_WITHOUT_ABORT(esp_timer_stop(wifi_retry_timer));
+    }
+    emit_status("wifi", "connected");
     ESP_LOGI(TAG, "Wi-Fi connected");
   }
 }
 
 static void start_wifi(void) {
   wifi_events = xEventGroupCreate();
+  const esp_timer_create_args_t retry_timer_config = {
+      .callback = wifi_retry_callback,
+      .name = "wifi_retry",
+  };
+  ESP_ERROR_CHECK(esp_timer_create(&retry_timer_config, &wifi_retry_timer));
   ESP_ERROR_CHECK(esp_netif_init());
   ESP_ERROR_CHECK(esp_event_loop_create_default());
   esp_netif_create_default_wifi_sta();
   wifi_init_config_t initialization = WIFI_INIT_CONFIG_DEFAULT();
+  initialization.nvs_enable = 0;
   ESP_ERROR_CHECK(esp_wifi_init(&initialization));
   ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL));
   ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL));
@@ -553,11 +640,25 @@ static void start_wifi(void) {
   wifi_config_t wifi_config = {0};
   memcpy(wifi_config.sta.ssid, config.wifi_ssid, strlen(config.wifi_ssid));
   memcpy(wifi_config.sta.password, config.wifi_password, strlen(config.wifi_password));
+  wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+  wifi_config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
   wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
   wifi_config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
+  wifi_config.sta.failure_retry_cnt = 3;
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+  // Use the legacy 20 MHz modes accepted by this controller's target access
+  // point, and do not depend on access-point-specific power-save behavior.
+  ESP_ERROR_CHECK(esp_wifi_set_protocol(WIFI_IF_STA,
+                                        WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G));
+  ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20));
+  ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
   ESP_ERROR_CHECK(esp_wifi_start());
+  // C3 Super Mini boards have very small PCB antennas. Use the ESP32-C3's
+  // supported 20 dBm ceiling so authentication frames reliably reach the AP.
+  ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(80));
+  emit_status("wifi", "connecting");
+  ESP_ERROR_CHECK(esp_wifi_connect());
 
   esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
   esp_sntp_setservername(0, "time.cloudflare.com");
@@ -594,7 +695,7 @@ static void print_config(void) {
   printf("  left_company_id: %s\n", config.left_company_id[0] ? config.left_company_id : "<unset>");
   printf("  right_company_id: %s\n", config.right_company_id[0] ? config.right_company_id : "<unset>");
   printf("  complete: %s\n", config_complete() ? "yes" : "no");
-  printf("Commands: identify | show | set <key> <value> | reboot | clear_state\n\n");
+  printf("Commands: identify | show | set <key> <value> | reboot | prepare_install | clear_state\n\n");
 }
 
 static void console_task(void *parameter) {
@@ -609,9 +710,13 @@ static void console_task(void *parameter) {
       printf("TSJSON:{\"type\":\"device.info\",\"protocolVersion\":1,\"model\":\"ESP32-C3\",\"firmwareVersion\":\"%s\",\"configured\":%s}\n",
              FIRMWARE_VERSION, config_complete() ? "true" : "false");
     } else if (strcmp(line, "reboot") == 0) {
+      prepare_network_shutdown();
       printf("Rebooting…\n");
       fflush(stdout);
       esp_restart();
+    } else if (strcmp(line, "prepare_install") == 0) {
+      prepare_network_shutdown();
+      printf("Ready for install.\n");
     } else if (strcmp(line, "clear_state") == 0) {
       xSemaphoreTake(state_mutex, portMAX_DELAY);
       memset(&state, 0, sizeof(state));
