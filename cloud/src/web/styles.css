@@ -295,6 +295,18 @@ h2 {
   background: var(--primary);
   transition: width 120ms ease-out;
 }
+.install-progress-track--indeterminate span {
+  width: 38%;
+  animation: install-progress-indeterminate 1.15s ease-in-out infinite;
+}
+@keyframes install-progress-indeterminate {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(275%);
+  }
+}
 .device-setup-actions {
   display: flex;
   align-items: center;

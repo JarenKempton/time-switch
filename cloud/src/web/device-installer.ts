@@ -8,7 +8,8 @@ export type InstallPhase =
   | "connecting"
   | "flashing"
   | "restarting"
-  | "configuring";
+  | "configuring"
+  | "checking";
 
 export interface DeviceConfiguration {
   apiUrl: string;
@@ -22,8 +23,30 @@ export interface DeviceConfiguration {
 
 export interface InstallProgress {
   phase: InstallPhase;
-  percent: number;
+  percent: number | null;
   detail: string;
+}
+
+export interface DeviceNetworkStatus {
+  type: "network.status";
+  stage: "wifi" | "time" | "provisioning";
+  status:
+    | "connecting"
+    | "connected"
+    | "disconnected"
+    | "ready"
+    | "complete"
+    | "failed";
+  reason?: number;
+  reasonName?: string;
+  rssi?: number;
+  transportError?: number;
+  httpStatus?: number;
+}
+
+export interface DeviceStatusDescription {
+  detail: string;
+  failure: string | null;
 }
 
 const delay = (milliseconds: number) =>
@@ -54,6 +77,175 @@ async function openConsole(port: SerialPort): Promise<void> {
   throw lastError instanceof Error
     ? lastError
     : new Error("The device did not reconnect after flashing.");
+}
+
+export function parseDeviceStatusLine(
+  line: string,
+): DeviceNetworkStatus | null {
+  const marker = "TSJSON:";
+  const markerIndex = line.indexOf(marker);
+  if (markerIndex < 0) return null;
+  try {
+    const value = JSON.parse(
+      line.slice(markerIndex + marker.length),
+    ) as Partial<DeviceNetworkStatus>;
+    if (value.type !== "network.status") return null;
+    if (!value.stage || !value.status) return null;
+    return value as DeviceNetworkStatus;
+  } catch {
+    return null;
+  }
+}
+
+export function describeDeviceStatus(
+  status: DeviceNetworkStatus,
+): DeviceStatusDescription {
+  if (status.stage === "wifi") {
+    if (status.status === "connecting")
+      return { detail: "Connecting to Wi-Fi…", failure: null };
+    if (status.status === "connected")
+      return {
+        detail: "Wi-Fi connected. Synchronizing network time…",
+        failure: null,
+      };
+    if (status.status === "disconnected") {
+      const suffix = status.reason == null ? "" : ` (reason ${status.reason})`;
+      const signal =
+        status.rssi != null && status.rssi > -128
+          ? ` Signal: ${status.rssi} dBm.`
+          : "";
+      let message: string;
+      switch (status.reason) {
+        case 2:
+          message = `The Wi-Fi access point did not answer the controller's authentication request${suffix}.`;
+          break;
+        case 15:
+        case 202:
+        case 204:
+          message = `Wi-Fi authentication was rejected or timed out${suffix}.`;
+          break;
+        case 201:
+          message = `The controller could not find that Wi-Fi network${suffix}.`;
+          break;
+        case 203:
+          message = `The Wi-Fi access point rejected the controller's association${suffix}.`;
+          break;
+        case 210:
+        case 211:
+          message = `The Wi-Fi network's security mode is not compatible with the controller${suffix}.`;
+          break;
+        default:
+          message = `The controller could not complete its Wi-Fi connection${suffix}.`;
+      }
+      const failure = `${message}${signal}`;
+      return { detail: failure, failure };
+    }
+  }
+
+  if (status.stage === "time" && status.status === "ready")
+    return {
+      detail: "Network time synchronized. Contacting Cloudflare…",
+      failure: null,
+    };
+
+  if (status.stage === "provisioning") {
+    if (status.status === "connecting")
+      return {
+        detail: "Registering the controller with Cloudflare…",
+        failure: null,
+      };
+    if (status.status === "complete")
+      return {
+        detail: "Cloudflare accepted the controller. Confirming online status…",
+        failure: null,
+      };
+    if (status.status === "failed") {
+      const http = status.httpStatus ? ` HTTP ${status.httpStatus}.` : "";
+      const transport =
+        status.transportError && status.transportError !== 0
+          ? ` Transport error ${status.transportError}.`
+          : "";
+      const failure = `The controller reached the network but Cloudflare provisioning failed.${http}${transport}`;
+      return { detail: failure, failure };
+    }
+  }
+
+  return { detail: "Waiting for the controller…", failure: null };
+}
+
+export async function monitorDeviceStartup(
+  port: SerialPort,
+  onStatus: (status: DeviceNetworkStatus) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) return;
+  await openConsole(port);
+  if (!port.readable)
+    throw new Error("The browser could not reopen the controller console.");
+
+  const reader = port.readable.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  const cancel = () => void reader.cancel().catch(() => undefined);
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    while (!signal?.aborted) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffered += decoder.decode(value, { stream: true });
+      const lines = buffered.split(/\r?\n/);
+      buffered = lines.pop() ?? "";
+      for (const line of lines) {
+        const status = parseDeviceStatusLine(line);
+        if (status) onStatus(status);
+      }
+    }
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+    await port.close().catch(() => undefined);
+  }
+}
+
+export async function prepareExistingDeviceForInstall(
+  port: SerialPort,
+): Promise<boolean> {
+  try {
+    await openConsole(port);
+    if (!port.readable || !port.writable) return false;
+    const reader = port.readable.getReader();
+    const writer = port.writable.getWriter();
+    const decoder = new TextDecoder();
+    let transcript = "";
+    let reading = true;
+    const readTask = (async () => {
+      while (reading) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        transcript += decoder.decode(value, { stream: true });
+      }
+    })().catch(() => undefined);
+    try {
+      await writer.write(new TextEncoder().encode("prepare_install\n"));
+      const deadline = Date.now() + 1_000;
+      while (Date.now() < deadline) {
+        if (transcript.includes("Ready for install.")) return true;
+        await delay(50);
+      }
+      return false;
+    } finally {
+      reading = false;
+      writer.releaseLock();
+      await reader.cancel().catch(() => undefined);
+      await readTask;
+      reader.releaseLock();
+      await port.close().catch(() => undefined);
+    }
+  } catch {
+    await port.close().catch(() => undefined);
+    return false;
+  }
 }
 
 export async function configureOverSerial(
@@ -129,7 +321,7 @@ export async function configureOverSerial(
     for (const [index, [key, value, label]] of commands.entries()) {
       onProgress({
         phase: "configuring",
-        percent: Math.round(((index + 1) / (commands.length + 1)) * 100),
+        percent: 74 + Math.round(((index + 1) / (commands.length + 1)) * 15),
         detail: `Saving ${label.toLowerCase()}…`,
       });
       const startIndex = transcript.length;
@@ -142,7 +334,7 @@ export async function configureOverSerial(
 
     onProgress({
       phase: "configuring",
-      percent: 100,
+      percent: 90,
       detail: "Verifying configuration…",
     });
     const startIndex = transcript.length;
@@ -169,7 +361,7 @@ export function supportsBrowserInstaller(): boolean {
 export async function installAndConfigureDevice(
   configurationFactory: () => Promise<DeviceConfiguration>,
   onProgress: (progress: InstallProgress) => void,
-): Promise<{ chip: string; deviceId: string }> {
+): Promise<{ chip: string; deviceId: string; port: SerialPort }> {
   if (!supportsBrowserInstaller())
     throw new Error(
       "Device setup requires desktop Chrome or Edge over a secure connection.",
@@ -177,6 +369,12 @@ export async function installAndConfigureDevice(
 
   onProgress({ phase: "connecting", percent: 0, detail: "Choose the ESP32." });
   const port = await navigator.serial.requestPort();
+  onProgress({
+    phase: "connecting",
+    percent: 2,
+    detail: "Preparing the controller…",
+  });
+  await prepareExistingDeviceForInstall(port);
   const { ESPLoader, Transport } = await import("esptool-js");
   const transport = new Transport(port);
   const terminal: IEspLoaderTerminal = {
@@ -208,11 +406,11 @@ export async function installAndConfigureDevice(
       reportProgress: (_index, written, total) =>
         onProgress({
           phase: "flashing",
-          percent: total ? Math.round((written / total) * 100) : 0,
+          percent: total ? 5 + Math.round((written / total) * 65) : 5,
           detail: "Installing firmware…",
         }),
     });
-    onProgress({ phase: "restarting", percent: 100, detail: "Restarting…" });
+    onProgress({ phase: "restarting", percent: 72, detail: "Restarting…" });
     await loader.after("hard_reset");
   } finally {
     await transport.disconnect().catch(() => undefined);
@@ -221,9 +419,9 @@ export async function installAndConfigureDevice(
   const configuration = await configurationFactory();
   onProgress({
     phase: "configuring",
-    percent: 100,
+    percent: 74,
     detail: "Sending settings directly over USB…",
   });
   await configureOverSerial(port, configuration, onProgress);
-  return { chip, deviceId: configuration.deviceId };
+  return { chip, deviceId: configuration.deviceId, port };
 }

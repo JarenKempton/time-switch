@@ -48,13 +48,16 @@ import {
 } from "@/web/components/ui/select";
 import { timeClock, type Device } from "../api";
 import {
+  describeDeviceStatus,
   installAndConfigureDevice,
+  monitorDeviceStartup,
   supportsBrowserInstaller,
   type InstallProgress,
 } from "../device-installer";
 import type { TimeClockData } from "../use-time-clock";
 
 const ONLINE_WINDOW_MS = 90_000;
+const CHECK_IN_TIMEOUT_MS = 90_000;
 
 function deviceState(device: Device, now: number) {
   if (device.revokedAt)
@@ -72,16 +75,20 @@ function deviceState(device: Device, now: number) {
 async function waitForCheckIn(
   deviceId: string,
   onAttempt: () => Promise<void>,
+  getDeviceFailure: () => string | null,
 ): Promise<void> {
-  const deadline = Date.now() + 45_000;
+  const deadline = Date.now() + CHECK_IN_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const devices = await timeClock.devices();
     if (devices.find((device) => device.id === deviceId)?.lastSeenAt) return;
     await onAttempt();
     await new Promise((resolve) => window.setTimeout(resolve, 2_000));
   }
+  const deviceFailure = getDeviceFailure();
   throw new Error(
-    "Firmware was installed, but the device has not checked in. Verify the Wi-Fi details and try setup again.",
+    deviceFailure
+      ? `The controller did not check in. ${deviceFailure}`
+      : "The controller did not check in within 90 seconds. Keep it connected by USB and run setup again to see its live network status.",
   );
 }
 
@@ -130,6 +137,9 @@ export function Devices({ data }: { data: TimeClockData }) {
       return setSetupError("Choose a different company for each position.");
 
     setRunning(true);
+    let monitorController: AbortController | null = null;
+    let monitorTask: Promise<void> | null = null;
+    let lastDeviceFailure: string | null = null;
     try {
       const result = await installAndConfigureDevice(async () => {
         const registration = setupDevice
@@ -146,11 +156,59 @@ export function Devices({ data }: { data: TimeClockData }) {
         };
       }, setProgress);
       setProgress({
-        phase: "configuring",
-        percent: 100,
-        detail: "Waiting for the first secure check-in…",
+        phase: "checking",
+        percent: null,
+        detail: "Waiting for the controller to join Wi-Fi…",
       });
-      await waitForCheckIn(result.deviceId, data.refresh);
+      monitorController = new AbortController();
+      monitorTask = monitorDeviceStartup(
+        result.port,
+        (status) => {
+          const description = describeDeviceStatus(status);
+          if (
+            description.failure &&
+            (status.reason !== 205 || !lastDeviceFailure)
+          )
+            lastDeviceFailure = description.failure;
+          if (
+            !description.failure &&
+            (status.status === "connected" ||
+              status.status === "ready" ||
+              status.status === "complete")
+          )
+            lastDeviceFailure = null;
+          setProgress({
+            phase: "checking",
+            percent: null,
+            detail:
+              status.reason === 205 && lastDeviceFailure
+                ? lastDeviceFailure
+                : description.detail,
+          });
+        },
+        monitorController.signal,
+      ).catch((error) => {
+        if (monitorController?.signal.aborted) return;
+        lastDeviceFailure =
+          error instanceof Error
+            ? `USB status monitoring stopped: ${error.message}`
+            : "USB status monitoring stopped unexpectedly.";
+        setProgress({
+          phase: "checking",
+          percent: null,
+          detail: lastDeviceFailure,
+        });
+      });
+      await waitForCheckIn(
+        result.deviceId,
+        data.refresh,
+        () => lastDeviceFailure,
+      );
+      setProgress({
+        phase: "checking",
+        percent: 100,
+        detail: "Controller is online.",
+      });
       await data.refresh();
       setShowSetup(false);
       setSetupDevice(null);
@@ -161,6 +219,8 @@ export function Devices({ data }: { data: TimeClockData }) {
         error instanceof Error ? error.message : "Device setup did not finish.",
       );
     } finally {
+      monitorController?.abort();
+      await monitorTask;
       setRunning(false);
     }
   }
@@ -313,13 +373,31 @@ export function Devices({ data }: { data: TimeClockData }) {
             </div>
 
             {progress && (
-              <div className="install-progress" aria-live="polite">
+              <div
+                className="install-progress"
+                aria-live="polite"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progress.percent ?? undefined}
+              >
                 <div className="install-progress-heading">
                   <span>{progress.detail}</span>
-                  <span className="tabular">{progress.percent}%</span>
+                  {progress.percent != null && (
+                    <span className="tabular">{progress.percent}%</span>
+                  )}
                 </div>
-                <div className="install-progress-track" aria-hidden="true">
-                  <span style={{ width: `${progress.percent}%` }} />
+                <div
+                  className={`install-progress-track${progress.percent == null ? " install-progress-track--indeterminate" : ""}`}
+                  aria-hidden="true"
+                >
+                  <span
+                    style={
+                      progress.percent == null
+                        ? undefined
+                        : { width: `${progress.percent}%` }
+                    }
+                  />
                 </div>
               </div>
             )}

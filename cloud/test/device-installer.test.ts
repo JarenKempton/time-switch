@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   configureOverSerial,
+  describeDeviceStatus,
+  monitorDeviceStartup,
+  parseDeviceStatusLine,
+  prepareExistingDeviceForInstall,
   type DeviceConfiguration,
   type InstallProgress,
 } from "../src/web/device-installer";
@@ -32,6 +36,8 @@ class FakeSerialPort {
                 'TSJSON:{"type":"device.info","model":"ESP32-C3"}\n',
               ),
             );
+        } else if (line === "prepare_install") {
+          this.controller?.enqueue(encoder.encode("Ready for install.\n"));
         } else if (line.startsWith("set ")) {
           const key = line.split(" ", 3)[1];
           this.controller?.enqueue(
@@ -47,6 +53,38 @@ class FakeSerialPort {
   async setSignals(signals: SerialOutputSignals): Promise<void> {
     this.signals.push(signals);
   }
+
+  async close(): Promise<void> {
+    this.readable = null;
+    this.writable = null;
+  }
+}
+
+class FakeStatusPort {
+  readable: ReadableStream<Uint8Array> | null = null;
+  writable: WritableStream<Uint8Array> | null = null;
+
+  async open(): Promise<void> {
+    const encoder = new TextEncoder();
+    this.readable = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'boot log\nTSJSON:{"type":"network.status","stage":"wifi",',
+          ),
+        );
+        controller.enqueue(
+          encoder.encode(
+            '"status":"disconnected","reason":2,"reasonName":"authentication-timeout","rssi":-59}\n',
+          ),
+        );
+        controller.close();
+      },
+    });
+    this.writable = new WritableStream<Uint8Array>();
+  }
+
+  async setSignals(): Promise<void> {}
 
   async close(): Promise<void> {
     this.readable = null;
@@ -90,8 +128,42 @@ describe("browser device installer", () => {
     expect(fakePort.lines.at(-1)).toBe("reboot");
     expect(progress.at(-1)).toMatchObject({
       phase: "configuring",
-      percent: 100,
+      percent: 90,
       detail: "Verifying configuration…",
     });
+    expect(
+      progress.every(({ percent }) => percent == null || percent < 100),
+    ).toBe(true);
+  });
+
+  it("parses and explains actionable network failures", () => {
+    const status = parseDeviceStatusLine(
+      '\u001b[0mTSJSON:{"type":"network.status","stage":"wifi","status":"disconnected","reason":2,"reasonName":"authentication-timeout","rssi":-59}',
+    );
+
+    expect(status).toMatchObject({ reason: 2, rssi: -59 });
+    expect(describeDeviceStatus(status!).failure).toBe(
+      "The Wi-Fi access point did not answer the controller's authentication request (reason 2). Signal: -59 dBm.",
+    );
+  });
+
+  it("streams structured startup status across split USB chunks", async () => {
+    const statuses: Array<{ reason?: number }> = [];
+
+    await monitorDeviceStartup(
+      new FakeStatusPort() as unknown as SerialPort,
+      (status) => statuses.push(status),
+    );
+
+    expect(statuses).toEqual([expect.objectContaining({ reason: 2 })]);
+  });
+
+  it("asks existing firmware to leave Wi-Fi before entering the bootloader", async () => {
+    const fakePort = new FakeSerialPort();
+
+    await expect(
+      prepareExistingDeviceForInstall(fakePort as unknown as SerialPort),
+    ).resolves.toBe(true);
+    expect(fakePort.lines).toContain("prepare_install");
   });
 });
