@@ -1,15 +1,15 @@
 # Production deployment
 
-The production release is intentionally manual. CI validates every branch and pull request; the **Deploy production** workflow deploys only after a person starts it and, when configured, approves the `production` GitHub environment.
+CI validates each pull request once and validates the resulting `main` commit. After the `main` CI run succeeds, **Deploy production** starts automatically and, when configured, waits for approval from the `production` GitHub environment. Manual dispatch remains available as a recovery path.
 
 ## One-time GitHub setup
 
 Create a GitHub environment named `production`, add yourself as its required reviewer, and add these environment secrets:
 
-| Secret | Purpose |
-| --- | --- |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account that owns `jarenkempton.dev` |
-| `CLOUDFLARE_API_TOKEN` | Narrow token allowed to deploy this Worker and its routes |
+| Secret                  | Purpose                                                   |
+| ----------------------- | --------------------------------------------------------- |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account that owns `jarenkempton.dev`           |
+| `CLOUDFLARE_API_TOKEN`  | Narrow token allowed to deploy this Worker and its routes |
 
 ## One-time Cloudflare Access setup
 
@@ -26,14 +26,14 @@ Set `ACCESS_TEAM_DOMAIN` in `cloud/wrangler.jsonc` to the account's Access team 
 
 ## Release flow
 
-1. Merge an reviewed pull request after CI is green.
-2. Open **Actions → Deploy production → Run workflow** against the intended commit or branch.
-3. Approve the `production` environment deployment.
-4. The workflow repeats formatting, type, test, migration, build, and Wrangler dry-run checks.
-5. The workflow builds a merged ESP32-C3 image and Wrangler uploads it with the Worker, assets, source maps, and Durable Object declaration.
-6. A deliberately invalid provisioning request confirms the device route, Durable Object, SQLite storage, and checked-in Drizzle migrations are usable without creating data or exposing a credential.
+1. Merge a reviewed pull request after CI is green.
+2. CI validates the exact `main` commit. Firmware compilation runs only on pull requests that modify `firmware/`; ordinary web and API changes skip it.
+3. A successful `main` CI run starts **Deploy production** for that commit.
+4. Approve the `production` environment deployment when prompted.
+5. Wrangler uploads the Worker, web assets, checked-in browser firmware image, source maps, and Durable Object declaration. It does not rebuild firmware or repeat the CI test suite.
+6. A deliberately invalid provisioning request confirms the device route, Durable Object, SQLite storage, and checked-in Drizzle migrations are usable without creating data or exposing a credential. The check retries briefly while Cloudflare propagates the new Worker version.
 
-The deployment job is concurrency-locked and never cancels an in-progress production release.
+The deployment job is concurrency-locked and never cancels an in-progress production release. Use **Actions → Deploy production → Run workflow** only when an automatic deployment needs to be retried.
 
 ## Local release checks
 

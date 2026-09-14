@@ -103,7 +103,7 @@ pnpm test
 pnpm deploy:check
 ```
 
-The GitHub Actions workflow builds both the ESP32 project and the merged image consumed by the browser installer. Database changes are defined with Drizzle in `cloud/src/db/schema.ts`; generate migrations with `pnpm migrate:generate` from `cloud/`.
+GitHub Actions builds the ESP32 project and merged browser image only when a pull request changes firmware. Successful CI on `main` starts the production deployment automatically. Database changes are defined with Drizzle in `cloud/src/db/schema.ts`; generate migrations with `pnpm migrate:generate` from `cloud/`.
 
 ## Useful console commands
 
