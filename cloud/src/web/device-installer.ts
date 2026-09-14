@@ -2,6 +2,7 @@ import type { IEspLoaderTerminal } from "esptool-js";
 
 const FIRMWARE_URL = "/firmware/time-switch-esp32c3.bin";
 const BAUD_RATE = 115_200;
+const IDENTITY_ATTEMPTS = 10;
 
 export type InstallPhase =
   | "connecting"
@@ -26,7 +27,7 @@ export interface InstallProgress {
 }
 
 const delay = (milliseconds: number) =>
-  new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
 
 function safeSerialValue(value: string, label: string): string {
   if (/[\r\n]/.test(value))
@@ -38,10 +39,15 @@ async function openConsole(port: SerialPort): Promise<void> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
-      await port.open({ baudRate: BAUD_RATE });
+      await port.open({ baudRate: BAUD_RATE, bufferSize: 1_024 });
+      await port.setSignals({
+        dataTerminalReady: false,
+        requestToSend: false,
+      });
       return;
     } catch (error) {
       lastError = error;
+      await port.close().catch(() => undefined);
       await delay(500);
     }
   }
@@ -50,9 +56,10 @@ async function openConsole(port: SerialPort): Promise<void> {
     : new Error("The device did not reconnect after flashing.");
 }
 
-async function configureOverSerial(
+export async function configureOverSerial(
   port: SerialPort,
   configuration: DeviceConfiguration,
+  onProgress: (progress: InstallProgress) => void = () => undefined,
 ): Promise<void> {
   await openConsole(port);
   if (!port.readable || !port.writable)
@@ -64,32 +71,52 @@ async function configureOverSerial(
   const encoder = new TextEncoder();
   let transcript = "";
   let reading = true;
+  let readError: unknown;
   const readTask = (async () => {
     while (reading) {
       const { value, done } = await reader.read();
       if (done) break;
-      transcript = (transcript + decoder.decode(value, { stream: true })).slice(
-        -8_192,
-      );
+      transcript += decoder.decode(value, { stream: true });
     }
-  })().catch(() => undefined);
+  })().catch((error) => {
+    if (reading) readError = error;
+  });
 
   const writeLine = async (line: string) => {
     await writer.write(encoder.encode(`${line}\n`));
-    await delay(120);
   };
-  const waitFor = async (text: string, timeoutMilliseconds: number) => {
+  const waitFor = async (
+    text: string,
+    startIndex: number,
+    timeoutMilliseconds: number,
+  ): Promise<boolean> => {
     const deadline = Date.now() + timeoutMilliseconds;
-    while (!transcript.includes(text) && Date.now() < deadline)
-      await delay(100);
-    if (!transcript.includes(text))
-      throw new Error("The device did not confirm its configuration.");
+    while (Date.now() < deadline) {
+      if (transcript.indexOf(text, startIndex) >= 0) return true;
+      if (readError)
+        throw new Error(
+          "The USB connection was interrupted after flashing. Reconnect the device and try again.",
+        );
+      await delay(50);
+    }
+    return false;
   };
 
   try {
-    await delay(1_200);
-    await writeLine("identify");
-    await waitFor('"model":"ESP32-C3"', 5_000);
+    await delay(300);
+    let identified = false;
+    for (let attempt = 0; attempt < IDENTITY_ATTEMPTS; attempt += 1) {
+      const startIndex = transcript.length;
+      await writeLine("identify");
+      identified = await waitFor('"model":"ESP32-C3"', startIndex, 750);
+      if (identified) break;
+      await delay(250);
+    }
+    if (!identified)
+      throw new Error(
+        "The ESP32 did not restart into setup mode after flashing. Unplug it, reconnect it, and try again.",
+      );
+
     const commands: Array<[string, string, string]> = [
       ["wifi_ssid", configuration.wifiSsid, "Wi-Fi network name"],
       ["wifi_password", configuration.wifiPassword, "Wi-Fi password"],
@@ -99,10 +126,31 @@ async function configureOverSerial(
       ["left_company_id", configuration.leftCompanyId, "Left company"],
       ["right_company_id", configuration.rightCompanyId, "Right company"],
     ];
-    for (const [key, value, label] of commands)
+    for (const [index, [key, value, label]] of commands.entries()) {
+      onProgress({
+        phase: "configuring",
+        percent: Math.round(((index + 1) / (commands.length + 1)) * 100),
+        detail: `Saving ${label.toLowerCase()}…`,
+      });
+      const startIndex = transcript.length;
       await writeLine(`set ${key} ${safeSerialValue(value, label)}`);
+      if (!(await waitFor(`Saved ${key}.`, startIndex, 3_000)))
+        throw new Error(
+          `The device did not acknowledge ${label.toLowerCase()}. Reconnect it and try again.`,
+        );
+    }
+
+    onProgress({
+      phase: "configuring",
+      percent: 100,
+      detail: "Verifying configuration…",
+    });
+    const startIndex = transcript.length;
     await writeLine("show");
-    await waitFor("complete: yes", 5_000);
+    if (!(await waitFor("complete: yes", startIndex, 3_000)))
+      throw new Error(
+        "The device saved the settings but did not report a complete configuration. Reconnect it and try again.",
+      );
     await writeLine("reboot");
   } finally {
     reading = false;
@@ -176,6 +224,6 @@ export async function installAndConfigureDevice(
     percent: 100,
     detail: "Sending settings directly over USB…",
   });
-  await configureOverSerial(port, configuration);
+  await configureOverSerial(port, configuration, onProgress);
   return { chip, deviceId: configuration.deviceId };
 }

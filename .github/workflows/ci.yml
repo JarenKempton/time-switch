@@ -3,6 +3,12 @@ name: CI
 on:
   pull_request:
   push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -38,19 +44,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
-          esp_idf_version: v5.3.5
-          target: esp32c3
-          path: firmware
-      - name: Build browser-flashable image
+          fetch-depth: 0
+      - name: Detect firmware changes
+        id: firmware-changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- firmware; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build firmware and browser image
+        if: steps.firmware-changes.outputs.changed == 'true'
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
           esp_idf_version: v5.3.5
           target: esp32c3
           path: firmware
-          command: cd build && esptool.py --chip esp32c3 merge_bin -o ../../cloud/public/firmware/time-switch-esp32c3.bin @flash_args
+          command: idf.py build && cd build && esptool.py --chip esp32c3 merge_bin -o ../../cloud/public/firmware/time-switch-esp32c3.bin @flash_args
       - name: Upload browser firmware
+        if: steps.firmware-changes.outputs.changed == 'true'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: time-switch-esp32c3-${{ github.sha }}
