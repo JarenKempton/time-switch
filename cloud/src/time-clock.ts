@@ -149,6 +149,9 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     this.app.all("/api/v1/devices", (context) =>
       this.handleDevices(context.req.raw),
     );
+    this.app.all("/api/v1/devices/:id/setup", (context) =>
+      this.prepareDeviceSetup(context.req.raw, context.req.param("id")),
+    );
     this.app.all("/api/v1/devices/:id", (context) =>
       this.handleDevice(context.req.raw, context.req.param("id")),
     );
@@ -309,20 +312,47 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
       .get();
     if (!existing)
       throw new ApiError(404, "device_not_found", "Device not found.");
+    this.db.delete(devices).where(eq(devices.id, id)).run();
+    this.broadcast({ type: "device.changed", status: this.getStatus() });
+    return ok({ id });
+  }
+
+  private async prepareDeviceSetup(
+    request: Request,
+    id: string,
+  ): Promise<Response> {
+    if (!zUuid(id))
+      throw new ApiError(400, "invalid_id", "Device ID is invalid.");
+    if (request.method !== "POST") return methodNotAllowed(["POST"]);
+    const existing = this.db
+      .select()
+      .from(devices)
+      .where(eq(devices.id, id))
+      .get();
+    if (!existing)
+      throw new ApiError(404, "device_not_found", "Device not found.");
+
     const now = new Date();
+    const setupToken = randomHex(32);
+    const updated = {
+      ...existing,
+      setupTokenHash: await sha256Hex(setupToken),
+      setupTokenExpiresAt: new Date(now.getTime() + SETUP_TOKEN_LIFETIME_MS),
+      revokedAt: null,
+      updatedAt: now,
+    };
     this.db
       .update(devices)
       .set({
-        secret: null,
-        setupTokenHash: null,
-        setupTokenExpiresAt: null,
-        revokedAt: now,
+        setupTokenHash: updated.setupTokenHash,
+        setupTokenExpiresAt: updated.setupTokenExpiresAt,
+        revokedAt: null,
         updatedAt: now,
       })
       .where(eq(devices.id, id))
       .run();
     this.broadcast({ type: "device.changed", status: this.getStatus() });
-    return ok({ id });
+    return ok({ device: deviceView(updated), setupToken });
   }
 
   private async provisionDevice(request: Request): Promise<Response> {

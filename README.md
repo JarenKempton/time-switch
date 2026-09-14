@@ -36,6 +36,10 @@ Open **Devices** in desktop Chrome or Edge, connect the ESP32 over USB, and choo
 4. Sends the Wi-Fi credentials directly from the browser to the ESP32 over USB.
 5. Waits for the controller's first authenticated check-in.
 
+Use **Configure** on an existing device to reinstall firmware and replace its
+Wi-Fi or switch mapping. Use **Delete** to remove an obsolete or incomplete
+registration; its existing credential stops working immediately.
+
 The Wi-Fi password never reaches the Worker or its database. Safari and iOS can display device status but do not support the browser installer.
 
 ## 3. Manual firmware development
@@ -103,7 +107,7 @@ pnpm test
 pnpm deploy:check
 ```
 
-GitHub Actions builds the ESP32 project and merged browser image only when a pull request changes firmware. Successful CI on `main` starts the production deployment automatically. Database changes are defined with Drizzle in `cloud/src/db/schema.ts`; generate migrations with `pnpm migrate:generate` from `cloud/`.
+GitHub Actions builds the ESP32 project and merged browser image only when a pull request changes firmware. Successful CI on `main` deploys production automatically without a separate environment approval. Database changes are defined with Drizzle in `cloud/src/db/schema.ts`; generate migrations with `pnpm migrate:generate` from `cloud/`.
 
 ## Useful console commands
 

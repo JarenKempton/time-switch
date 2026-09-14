@@ -124,7 +124,11 @@ export const timeClock = {
       method: "POST",
       body: JSON.stringify({ name }),
     }),
-  revokeDevice: (id: string) =>
+  prepareDeviceSetup: (id: string) =>
+    api<DeviceRegistration>(`/api/v1/devices/${id}/setup`, {
+      method: "POST",
+    }),
+  deleteDevice: (id: string) =>
     api<{ id: string }>(`/api/v1/devices/${id}`, { method: "DELETE" }),
   updateCompany: (id: string, body: unknown) =>
     api<Company>(`/api/v1/companies/${id}`, {

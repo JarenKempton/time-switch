@@ -208,6 +208,77 @@ describe("time clock API", () => {
     expect(listed.body.data[0].id).toBe(first.body.data.device.id);
   });
 
+  it("issues fresh setup authorization for an existing device", async () => {
+    const original = await provisionDevice("Reconfigurable panel");
+    const prepared = await request<{
+      data: { device: { id: string }; setupToken: string };
+    }>(`/api/v1/devices/${original.deviceId}/setup`, { method: "POST" });
+    expect(prepared.status).toBe(200);
+    expect(prepared.body.data.device.id).toBe(original.deviceId);
+
+    const reprovisioned = await SELF.fetch(
+      "https://example.test/device/v1/provision",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deviceId: original.deviceId,
+          setupToken: prepared.body.data.setupToken,
+          firmwareVersion: "test-1.1.0",
+        }),
+      },
+    );
+    expect(reprovisioned.status).toBe(200);
+    const body = (await reprovisioned.json()) as {
+      data: { secret: string };
+    };
+    expect(body.data.secret).not.toBe(original.secret);
+
+    const path = "/device/v1/health";
+    const requestBody = "{}";
+    const oldCredentials = await SELF.fetch(`https://example.test${path}`, {
+      method: "POST",
+      headers: await signedDeviceHeaders(
+        path,
+        requestBody,
+        original.deviceId,
+        original.secret,
+      ),
+      body: requestBody,
+    });
+    expect(oldCredentials.status).toBe(401);
+  });
+
+  it("permanently deletes a device and releases its name", async () => {
+    const first = await request<{
+      data: { device: { id: string } };
+    }>("/api/v1/devices", {
+      method: "POST",
+      body: JSON.stringify({ name: "Disposable panel" }),
+    });
+    const deleted = await request<{ data: { id: string } }>(
+      `/api/v1/devices/${first.body.data.device.id}`,
+      { method: "DELETE" },
+    );
+    expect(deleted.status).toBe(200);
+
+    const listed = await request<{ data: Array<{ id: string }> }>(
+      "/api/v1/devices",
+    );
+    expect(
+      listed.body.data.some(({ id }) => id === first.body.data.device.id),
+    ).toBe(false);
+
+    const replacement = await request<{
+      data: { device: { id: string } };
+    }>("/api/v1/devices", {
+      method: "POST",
+      body: JSON.stringify({ name: "Disposable panel" }),
+    });
+    expect(replacement.status).toBe(201);
+    expect(replacement.body.data.device.id).not.toBe(first.body.data.device.id);
+  });
+
   it("stores per-company pay-period settings", async () => {
     const created = await request<{
       data: {

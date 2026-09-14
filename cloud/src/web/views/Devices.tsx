@@ -3,10 +3,23 @@ import {
   CpuIcon,
   LoaderCircleIcon,
   PlusIcon,
+  Settings2Icon,
+  Trash2Icon,
   UsbIcon,
   WifiIcon,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/web/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/web/components/ui/alert-dialog";
 import { Badge } from "@/web/components/ui/badge";
 import { Button } from "@/web/components/ui/button";
 import {
@@ -82,6 +95,9 @@ export function Devices({ data }: { data: TimeClockData }) {
   const [rightCompanyId, setRightCompanyId] = useState("");
   const [progress, setProgress] = useState<InstallProgress | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [setupDevice, setSetupDevice] = useState<Device | null>(null);
+  const [deletingDeviceId, setDeletingDeviceId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const supported = useMemo(() => supportsBrowserInstaller(), []);
 
@@ -89,6 +105,15 @@ export function Devices({ data }: { data: TimeClockData }) {
     if (!leftCompanyId && companies[0]) setLeftCompanyId(companies[0].id);
     if (!rightCompanyId && companies[1]) setRightCompanyId(companies[1].id);
   }, [companies, leftCompanyId, rightCompanyId]);
+
+  function openSetup(device: Device | null) {
+    setSetupDevice(device);
+    setName(device?.name ?? "Desk panel");
+    setWifiPassword("");
+    setProgress(null);
+    setSetupError(null);
+    setShowSetup(true);
+  }
 
   async function install() {
     setSetupError(null);
@@ -107,7 +132,9 @@ export function Devices({ data }: { data: TimeClockData }) {
     setRunning(true);
     try {
       const result = await installAndConfigureDevice(async () => {
-        const registration = await timeClock.createDevice(name.trim());
+        const registration = setupDevice
+          ? await timeClock.prepareDeviceSetup(setupDevice.id)
+          : await timeClock.createDevice(name.trim());
         return {
           apiUrl: window.location.origin,
           deviceId: registration.device.id,
@@ -126,6 +153,7 @@ export function Devices({ data }: { data: TimeClockData }) {
       await waitForCheckIn(result.deviceId, data.refresh);
       await data.refresh();
       setShowSetup(false);
+      setSetupDevice(null);
       setProgress(null);
       setWifiPassword("");
     } catch (error) {
@@ -134,6 +162,21 @@ export function Devices({ data }: { data: TimeClockData }) {
       );
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function deleteDevice(device: Device) {
+    setActionError(null);
+    setDeletingDeviceId(device.id);
+    try {
+      await timeClock.deleteDevice(device.id);
+      await data.refresh();
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "The device was not deleted.",
+      );
+    } finally {
+      setDeletingDeviceId(null);
     }
   }
 
@@ -146,7 +189,7 @@ export function Devices({ data }: { data: TimeClockData }) {
             Install, configure, and monitor controllers from one place.
           </p>
         </div>
-        <Button onClick={() => setShowSetup(true)} disabled={running}>
+        <Button onClick={() => openSetup(null)} disabled={running}>
           <PlusIcon />
           Add device
         </Button>
@@ -158,6 +201,7 @@ export function Devices({ data }: { data: TimeClockData }) {
           if (running) return;
           setShowSetup(open);
           if (!open) {
+            setSetupDevice(null);
             setProgress(null);
             setSetupError(null);
             setWifiPassword("");
@@ -172,7 +216,11 @@ export function Devices({ data }: { data: TimeClockData }) {
         >
           <DialogHeader className="pr-10">
             <div className="flex items-center justify-between gap-3">
-              <DialogTitle>Set up a controller</DialogTitle>
+              <DialogTitle>
+                {setupDevice
+                  ? `Configure ${setupDevice.name}`
+                  : "Set up a controller"}
+              </DialogTitle>
               <Badge variant={supported ? "outline" : "destructive"}>
                 <UsbIcon data-icon="inline-start" />
                 {supported ? "USB ready" : "Unsupported browser"}
@@ -200,7 +248,7 @@ export function Devices({ data }: { data: TimeClockData }) {
                   id="device-name"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  disabled={running}
+                  disabled={running || !!setupDevice}
                 />
               </div>
               <div className="field-stack">
@@ -294,12 +342,22 @@ export function Devices({ data }: { data: TimeClockData }) {
                 ) : (
                   <CpuIcon />
                 )}
-                {running ? "Setting up…" : "Install and configure"}
+                {running
+                  ? "Setting up…"
+                  : setupDevice
+                    ? "Reinstall and configure"
+                    : "Install and configure"}
               </Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
+
+      {actionError && (
+        <Alert variant="destructive">
+          <AlertDescription>{actionError}</AlertDescription>
+        </Alert>
+      )}
 
       <div className="device-list" aria-live="polite">
         {data.devices.length ? (
@@ -331,6 +389,56 @@ export function Devices({ data }: { data: TimeClockData }) {
                       ? new Date(device.lastSeenAt).toLocaleString()
                       : "Never"}
                   </strong>
+                  <div className="device-actions">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openSetup(device)}
+                      disabled={running || deletingDeviceId === device.id}
+                    >
+                      <Settings2Icon />
+                      Configure
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={running || deletingDeviceId === device.id}
+                        >
+                          {deletingDeviceId === device.id ? (
+                            <LoaderCircleIcon className="animate-spin" />
+                          ) : (
+                            <Trash2Icon />
+                          )}
+                          Delete
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Delete {device.name}?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This removes the device registration immediately.
+                            Any firmware using its current credentials will no
+                            longer be authorized.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            variant="destructive"
+                            onClick={() => void deleteDevice(device)}
+                          >
+                            Delete device
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                 </CardContent>
               </Card>
             );

@@ -1,10 +1,10 @@
 # Production deployment
 
-CI validates each pull request once and validates the resulting `main` commit. After the `main` CI run succeeds, **Deploy production** starts automatically and, when configured, waits for approval from the `production` GitHub environment. Manual dispatch remains available as a recovery path.
+CI validates each pull request once and validates the resulting `main` commit. After the `main` CI run succeeds, **Deploy production** starts automatically. Manual dispatch remains available as a recovery path.
 
 ## One-time GitHub setup
 
-Create a GitHub environment named `production`, add yourself as its required reviewer, and add these environment secrets:
+Create a GitHub environment named `production` without required reviewers and add these environment secrets:
 
 | Secret                  | Purpose                                                   |
 | ----------------------- | --------------------------------------------------------- |
@@ -29,9 +29,8 @@ Set `ACCESS_TEAM_DOMAIN` in `cloud/wrangler.jsonc` to the account's Access team 
 1. Merge a reviewed pull request after CI is green.
 2. CI validates the exact `main` commit. Firmware compilation runs only on pull requests that modify `firmware/`; ordinary web and API changes skip it.
 3. A successful `main` CI run starts **Deploy production** for that commit.
-4. Approve the `production` environment deployment when prompted.
-5. Wrangler uploads the Worker, web assets, checked-in browser firmware image, source maps, and Durable Object declaration. It does not rebuild firmware or repeat the CI test suite.
-6. A deliberately invalid provisioning request confirms the device route, Durable Object, SQLite storage, and checked-in Drizzle migrations are usable without creating data or exposing a credential. The check retries briefly while Cloudflare propagates the new Worker version.
+4. The deployment builds the Vite application, then Wrangler uploads the Worker, web assets, checked-in browser firmware image, source maps, and Durable Object declaration. It does not rebuild firmware or repeat the CI test suite.
+5. A deliberately invalid provisioning request confirms the device route, Durable Object, SQLite storage, and checked-in Drizzle migrations are usable without creating data or exposing a credential. The check retries briefly while Cloudflare propagates the new Worker version.
 
 The deployment job is concurrency-locked and never cancels an in-progress production release. Use **Actions → Deploy production → Run workflow** only when an automatic deployment needs to be retried.
 
