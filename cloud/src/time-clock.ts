@@ -38,6 +38,8 @@ export interface TimeClockEnv {
   ASSETS: Fetcher;
   DEVICE_HMAC_SECRET?: string;
   DEVICE_ID: string;
+  ACCESS_TEAM_DOMAIN?: string;
+  ACCESS_AUD?: string;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
 }
 

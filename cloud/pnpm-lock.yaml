@@ -22,6 +22,9 @@ importers:
       hono:
         specifier: ^4.13.7
         version: 4.13.7
+      jose:
+        specifier: ^6.2.12
+        version: 6.2.12
       lucide-react:
         specifier: ^1.45.0
         version: 1.45.0(react@19.3.0)

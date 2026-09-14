@@ -82,7 +82,7 @@ pnpm migrate:generate
 
 ## Cloudflare deployment preparation
 
-`cloud/wrangler.jsonc` declares the `time-switch` Worker, SQLite Durable Object, static assets, observability, source maps, and custom domain `time.jarenkempton.dev`. Hono defines both the public Worker boundary and Durable Object API routes; Drizzle owns the SQLite schema and migrations. The Worker does not contain a fallback dashboard password: all dashboard and browser API requests fail closed unless Cloudflare Access supplies an authenticated identity. `/device/*` remains separately protected by HMAC so the ESP32 does not need an interactive Access login.
+`cloud/wrangler.jsonc` declares the `time-switch` Worker, SQLite Durable Object, static assets, observability, source maps, and custom domain `time.jarenkempton.dev`. Hono defines both the public Worker boundary and Durable Object API routes; Drizzle owns the SQLite schema and migrations. The Worker does not contain a fallback dashboard password: all dashboard and browser API requests fail closed unless the signed Cloudflare Access assertion passes issuer, audience, signature, expiry, and identity validation. `/device/*` remains separately protected by HMAC so the ESP32 does not need an interactive Access login.
 
 Follow [`docs/deployment.md`](docs/deployment.md) for the one-time Access and GitHub environment setup and the manual production release workflow.
 

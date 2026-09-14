@@ -25,6 +25,8 @@ Create two self-hosted Access applications or path rules, in this order of speci
 
 Cloudflare applies the most specific matching application path. Do not add a wider bypass rule and do not place device endpoints under `/api/*`.
 
+Set `ACCESS_TEAM_DOMAIN` in `cloud/wrangler.jsonc` to the account's Access team URL and set `ACCESS_AUD` to the dashboard application's audience tag. These values are identifiers, not secrets. The Worker verifies every forwarded `Cf-Access-Jwt-Assertion` against the team's public keys, expected issuer, and expected audience before serving the dashboard or browser API.
+
 ## Release flow
 
 1. Merge an reviewed pull request after CI is green.
