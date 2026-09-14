@@ -38,14 +38,15 @@ jobs:
           cache-dependency-path: cloud/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
         working-directory: cloud
+      - name: Build Worker and web assets
+        run: pnpm build
+        working-directory: cloud
       - name: Deploy Worker
-        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: cloud
-          wranglerVersion: 4.131.1
-          command: deploy --strict --message ${{ env.DEPLOY_SHA }}
+        run: pnpm exec wrangler deploy --strict --message "$DEPLOY_SHA"
+        working-directory: cloud
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Verify deployed Durable Object
         run: pnpm smoke
         working-directory: cloud

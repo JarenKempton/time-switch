@@ -84,6 +84,9 @@ describe("browser device installer", () => {
     );
     expect(fakePort.lines).toContain("set wifi_ssid Test network");
     expect(fakePort.lines).toContain("set wifi_password test-password");
+    expect(fakePort.lines).toContain(
+      "set device_id 00000000-0000-4000-8000-000000000001",
+    );
     expect(fakePort.lines.at(-1)).toBe("reboot");
     expect(progress.at(-1)).toMatchObject({
       phase: "configuring",

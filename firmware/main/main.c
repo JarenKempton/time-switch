@@ -38,7 +38,7 @@
 #define STORAGE_VERSION 1U
 #define MAX_PENDING_OPERATIONS 16
 #define MIN_VALID_UNIX_TIMESTAMP 1704067200LL  // 2024-01-01T00:00:00Z
-#define FIRMWARE_VERSION "0.2.0"
+#define FIRMWARE_VERSION "0.2.1"
 #define HEARTBEAT_INTERVAL_MS 30000
 
 typedef enum {
@@ -66,12 +66,15 @@ typedef struct {
   char wifi_ssid[33];
   char wifi_password[65];
   char api_url[161];
-  char device_id[33];
+  char device_id[37];
   char device_secret[129];
   char provisioning_token[65];
   char left_company_id[37];
   char right_company_id[37];
 } device_config_t;
+
+_Static_assert(sizeof(((device_config_t *)0)->device_id) == 37,
+               "Device UUID buffer must include its null terminator");
 
 typedef struct {
   uint32_t magic;
