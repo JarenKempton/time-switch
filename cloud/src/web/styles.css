@@ -124,13 +124,12 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
   background: none;
   border: 0;
   color: inherit;
   font: inherit;
   font-weight: 700;
+  letter-spacing: -0.02em;
   cursor: pointer;
 }
 .nav {
@@ -524,16 +523,27 @@ h2 {
 .period-card--active {
   border-color: color-mix(in srgb, var(--company-color) 30%, var(--border));
 }
-.period-card header {
-  display: flex;
+/*
+ * Two rows: the name row also holds the company mark and the Live chip, so
+ * both center on the name's line box rather than on the whole header.
+ */
+.period-card-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "mark name chip"
+    ". cadence .";
+  column-gap: 12px;
   align-items: center;
-  gap: 12px;
 }
-.period-card header > div {
-  flex: 1;
-  min-width: 0;
+.period-card-header > .company-mark {
+  grid-area: mark;
+}
+.period-card-header > .live-chip {
+  grid-area: chip;
 }
 .period-card h3 {
+  grid-area: name;
   font-size: 1rem;
   font-weight: 650;
   letter-spacing: -0.01em;
@@ -541,8 +551,8 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.period-card header span {
-  display: block;
+.period-cadence {
+  grid-area: cadence;
   font-size: 0.8rem;
   color: var(--muted-foreground);
   white-space: nowrap;
@@ -603,6 +613,10 @@ h2 {
   font-size: 0.85rem;
   color: var(--muted-foreground);
 }
+.period-progress-group {
+  display: grid;
+  gap: 8px;
+}
 .period-progress {
   height: 4px;
   border-radius: 999px;
@@ -622,7 +636,6 @@ h2 {
   gap: 12px;
   font-size: 0.78rem;
   color: var(--muted-foreground);
-  margin-top: -6px;
 }
 .period-backlog {
   display: flex;
@@ -699,6 +712,11 @@ h2 {
   align-items: center;
   gap: 8px;
   font-weight: 600;
+}
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 .filters {
   display: grid;
@@ -831,10 +849,13 @@ h2 {
   font-weight: 650;
   letter-spacing: -0.02em;
 }
+/* The radio shares the title row so it centers on the title's line box. */
 .choice {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 2px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -851,11 +872,11 @@ h2 {
   background: color-mix(in oklch, var(--primary) 7%, transparent);
 }
 .choice > button {
-  margin-top: 3px;
+  grid-row: 1;
 }
-.choice > span {
-  display: grid;
-  gap: 2px;
+.choice > strong,
+.choice > small {
+  grid-column: 2;
 }
 .choice strong {
   font-size: 0.9rem;
@@ -929,10 +950,4 @@ h2 {
   .company-list-body code {
     word-break: break-all;
   }
-}
-
-.row-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
 }

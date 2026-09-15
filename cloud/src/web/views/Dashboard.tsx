@@ -246,15 +246,13 @@ function PeriodCard({
       className={`period-card ${isActive ? "period-card--active" : ""}`}
       style={companyStyle(company)}
     >
-      <header>
+      <header className="period-card-header">
         <CompanyMark company={company} />
-        <div>
-          <h3>{company.name}</h3>
-          <span>
-            {describeCadence(company)}
-            {period.source === "custom" ? " · custom" : ""}
-          </span>
-        </div>
+        <h3>{company.name}</h3>
+        <span className="period-cadence">
+          {describeCadence(company)}
+          {period.source === "custom" ? " · custom" : ""}
+        </span>
         {isActive && (
           <span className="live-chip">
             <i aria-hidden="true" />
@@ -274,23 +272,25 @@ function PeriodCard({
         <span>{formatRange(period.start, period.end)}</span>
       </div>
 
-      <div
-        className="period-progress"
-        role="progressbar"
-        aria-valuenow={Math.round(progress * 100)}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={`${company.name} pay period progress`}
-      >
-        <i style={{ width: `${progress * 100}%` }} />
-      </div>
-      <div className="period-meta">
-        <span>{daysLeft(period.end, now)}</span>
-        <span>
-          {latestRetrieval
-            ? `Last pulled ${formatRelative(latestRetrieval.createdAt, now)}`
-            : "Never pulled"}
-        </span>
+      <div className="period-progress-group">
+        <div
+          className="period-progress"
+          role="progressbar"
+          aria-valuenow={Math.round(progress * 100)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`${company.name} pay period progress`}
+        >
+          <i style={{ width: `${progress * 100}%` }} />
+        </div>
+        <div className="period-meta">
+          <span>{daysLeft(period.end, now)}</span>
+          <span>
+            {latestRetrieval
+              ? `Last pulled ${formatRelative(latestRetrieval.createdAt, now)}`
+              : "Never pulled"}
+          </span>
+        </div>
       </div>
 
       {period.unretrievedSince && (

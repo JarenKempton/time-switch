@@ -196,22 +196,18 @@ export function RetrieveHoursDialog({
                 >
                   <label className="choice">
                     <RadioGroupItem value="period_start" />
-                    <span>
-                      <strong>
-                        Through {formatDate(period.start, true)} only
-                      </strong>
-                      <small>
-                        Close the previous period. The current one keeps running
-                        as scheduled.
-                      </small>
-                    </span>
+                    <strong>
+                      Through {formatDate(period.start, true)} only
+                    </strong>
+                    <small>
+                      Close the previous period. The current one keeps running
+                      as scheduled.
+                    </small>
                   </label>
                   <label className="choice">
                     <RadioGroupItem value="now" />
-                    <span>
-                      <strong>Everything up to now</strong>
-                      <small>Include the current period so far.</small>
-                    </span>
+                    <strong>Everything up to now</strong>
+                    <small>Include the current period so far.</small>
                   </label>
                 </RadioGroup>
               </div>
@@ -230,15 +226,13 @@ export function RetrieveHoursDialog({
                   {options.map((option) => (
                     <label className="choice" key={option.key}>
                       <RadioGroupItem value={option.key} />
-                      <span>
-                        <strong>{option.label}</strong>
-                        <small>
-                          {option.end
-                            ? `Ends ${formatDate(new Date(option.end.getTime() - 1), true)}. `
-                            : ""}
-                          {option.detail}
-                        </small>
-                      </span>
+                      <strong>{option.label}</strong>
+                      <small>
+                        {option.end
+                          ? `Ends ${formatDate(new Date(option.end.getTime() - 1), true)}. `
+                          : ""}
+                        {option.detail}
+                      </small>
                     </label>
                   ))}
                 </RadioGroup>
