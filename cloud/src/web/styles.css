@@ -951,3 +951,71 @@ h2 {
     word-break: break-all;
   }
 }
+
+/* ---------- Logo picker (R2) ---------- */
+
+.logo-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.logo-tile {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  overflow: hidden;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.logo-tile > button {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+}
+.logo-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: white;
+  border-radius: 6px;
+}
+.logo-tile--none,
+.logo-tile--upload {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+}
+.logo-tile--none svg,
+.logo-tile--upload svg {
+  width: 16px;
+  height: 16px;
+}
+.logo-tile--upload:hover:not(:disabled),
+.logo-tile--none:hover {
+  border-color: var(--primary);
+  color: var(--foreground);
+}
+.logo-tile--selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+.logo-tile-delete {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  opacity: 0;
+  background: color-mix(in srgb, var(--background) 85%, transparent);
+}
+.logo-tile:hover .logo-tile-delete,
+.logo-tile-delete:focus-visible {
+  opacity: 1;
+}

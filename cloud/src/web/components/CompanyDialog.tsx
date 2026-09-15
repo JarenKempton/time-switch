@@ -38,6 +38,7 @@ import {
 } from "../lib/pay-period";
 import { formatRange } from "../format";
 import { DEFAULT_COMPANY_COLOR } from "./CompanyMark";
+import { LogoPicker } from "./LogoPicker";
 import type { PayPeriodCadence } from "../../db/schema";
 
 const CADENCES = Object.keys(cadenceLabels) as PayPeriodCadence[];
@@ -63,6 +64,9 @@ export function CompanyDialog({
   const [anchor, setAnchor] = useState(
     company?.payPeriodAnchorDate ?? toDateInput(new Date()),
   );
+  const [logoUrl, setLogoUrl] = useState<string | null>(
+    company?.logoUrl ?? null,
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -70,6 +74,7 @@ export function CompanyDialog({
     setCopied(false);
     setCadence(company?.payPeriodCadence ?? "biweekly");
     setAnchor(company?.payPeriodAnchorDate ?? toDateInput(new Date()));
+    setLogoUrl(company?.logoUrl ?? null);
   }, [company, open]);
 
   const previewCompany = /^\d{4}-\d{2}-\d{2}$/.test(anchor)
@@ -84,7 +89,7 @@ export function CompanyDialog({
     try {
       const body = {
         name: form.get("name"),
-        logoUrl: form.get("logoUrl"),
+        logoUrl,
         color: form.get("color"),
         payPeriodCadence: cadence,
         payPeriodAnchorDate: anchor,
@@ -158,21 +163,7 @@ export function CompanyDialog({
               />
             </div>
           </div>
-          <div className="field-stack">
-            <Label htmlFor="company-logo">
-              Logo URL
-              <span className="ml-1 font-normal text-muted-foreground">
-                optional, HTTPS
-              </span>
-            </Label>
-            <Input
-              id="company-logo"
-              name="logoUrl"
-              type="url"
-              defaultValue={company?.logoUrl ?? ""}
-              placeholder="https://…"
-            />
-          </div>
+          <LogoPicker value={logoUrl} onChange={setLogoUrl} onError={onError} />
 
           <fieldset className="rounded-lg border border-border p-4">
             <legend className="px-1 text-xs font-semibold tracking-wider text-muted-foreground uppercase">

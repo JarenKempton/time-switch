@@ -10,6 +10,8 @@ const nullableUrl = z
         return false;
       }
     }, "Logo URL must use HTTPS."),
+    // Logos uploaded to R2 are referenced by their same-origin path.
+    z.string().regex(/^\/logos\/[A-Za-z0-9._%-]+$/, "Logo path is invalid."),
     z.literal(""),
   ])
   .nullable()
