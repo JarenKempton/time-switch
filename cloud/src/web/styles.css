@@ -526,12 +526,19 @@ h2 {
 }
 .period-card header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
 }
 .period-card header > div {
   flex: 1;
   min-width: 0;
+}
+/* Center the mark and Live chip on the 24px name line, not the whole header. */
+.period-card header > .company-mark {
+  margin-top: 6px;
+}
+.period-card header > .live-chip {
+  margin-top: 1px;
 }
 .period-card h3 {
   font-size: 1rem;
