@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { DownloadIcon, PencilIcon, Undo2Icon } from "lucide-react";
+import { DownloadIcon, PencilIcon, Trash2Icon, Undo2Icon } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -104,6 +104,17 @@ export function History({ data }: { data: TimeClockData }) {
   const visibleRetrievals = retrievals.filter(
     (retrieval) => companyId === ALL || retrieval.companyId === companyId,
   );
+
+  async function remove(id: string) {
+    try {
+      await timeClock.deleteSession(id);
+      await data.refresh();
+    } catch (cause) {
+      data.setError(
+        cause instanceof Error ? cause.message : "Unable to delete the session.",
+      );
+    }
+  }
 
   async function undo(id: string) {
     try {
@@ -334,14 +345,54 @@ export function History({ data }: { data: TimeClockData }) {
                       {session.note ?? ""}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Edit session"
-                        onClick={() => setEditing(session)}
-                      >
-                        <PencilIcon />
-                      </Button>
+                      <span className="row-actions">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="Edit session"
+                          title="Edit times, company, or note"
+                          onClick={() => setEditing(session)}
+                        >
+                          <PencilIcon />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label="Delete session"
+                              title="Delete this session"
+                            >
+                              <Trash2Icon />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Delete this session?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {session.company.name},{" "}
+                                {formatDateTime(session.startedAt)}
+                                {session.endedAt
+                                  ? ` – ${formatTime(session.endedAt)}`
+                                  : " – now"}{" "}
+                                ({formatDuration(sessionSeconds(session, now))}
+                                ). The hours are removed from every total and
+                                this cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Keep</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => void remove(session.id)}
+                              >
+                                Delete session
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </span>
                     </TableCell>
                   </TableRow>
                 ))}

@@ -57,6 +57,7 @@ interface LiveMessage {
     | "session.started"
     | "session.stopped"
     | "session.updated"
+    | "session.deleted"
     | "company.changed"
     | "device.changed"
     | "retrieval.changed";
@@ -713,7 +714,9 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     if (stopMatch) return this.handleStop(request, stopMatch[1]);
     if (!zUuid(id))
       throw new ApiError(400, "invalid_id", "Session ID is invalid.");
-    if (request.method !== "PATCH") return methodNotAllowed(["PATCH"]);
+    if (request.method === "DELETE") return this.deleteSession(id);
+    if (request.method !== "PATCH")
+      return methodNotAllowed(["PATCH", "DELETE"]);
     const input = updateSessionSchema.parse(await readJson(request));
     const current = this.db
       .select()
@@ -779,6 +782,19 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
       session: updated,
     });
     return ok(updated);
+  }
+
+  private deleteSession(id: string): Response {
+    const existing = this.db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .get();
+    if (!existing)
+      throw new ApiError(404, "session_not_found", "Session not found.");
+    this.db.delete(sessions).where(eq(sessions.id, id)).run();
+    this.broadcast({ type: "session.deleted", status: this.getStatus() });
+    return ok({ id });
   }
 
   private async handleStop(request: Request, id: string): Promise<Response> {

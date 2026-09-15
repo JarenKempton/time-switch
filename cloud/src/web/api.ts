@@ -155,6 +155,8 @@ export const timeClock = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  deleteSession: (id: string) =>
+    api<{ id: string }>(`/api/v1/sessions/${id}`, { method: "DELETE" }),
   status: () => api<Status>("/api/v1/status"),
   summary: (from: Date, to: Date) =>
     api<Summary>(

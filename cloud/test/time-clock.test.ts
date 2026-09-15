@@ -400,6 +400,52 @@ describe("time clock API", () => {
     expect(repeatedStop.body.data.durationSeconds).toBe(15_300);
   });
 
+  it("edits and deletes a session", async () => {
+    const company = await createCompany();
+    const companyId = company.body.data.id;
+    const started = await request<{ data: { id: string } }>(
+      "/api/v1/sessions",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          companyId,
+          startedAt: "2026-09-10T15:00:00.000Z",
+        }),
+      },
+    );
+    const sessionId = started.body.data.id;
+
+    const edited = await request<{
+      data: { startedAt: string; endedAt: string | null };
+    }>(`/api/v1/sessions/${sessionId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        startedAt: "2026-09-10T14:00:00.000Z",
+        endedAt: "2026-09-10T16:30:00.000Z",
+      }),
+    });
+    expect(edited.status).toBe(200);
+    expect(edited.body.data.startedAt).toBe("2026-09-10T14:00:00.000Z");
+    expect(edited.body.data.endedAt).toBe("2026-09-10T16:30:00.000Z");
+
+    const deleted = await request<{ data: { id: string } }>(
+      `/api/v1/sessions/${sessionId}`,
+      { method: "DELETE" },
+    );
+    expect(deleted.status).toBe(200);
+    expect(deleted.body.data.id).toBe(sessionId);
+
+    const listed = await request<{ data: Array<{ id: string }> }>(
+      "/api/v1/sessions",
+    );
+    expect(listed.body.data.find((row) => row.id === sessionId)).toBeUndefined();
+
+    const again = await request(`/api/v1/sessions/${sessionId}`, {
+      method: "DELETE",
+    });
+    expect(again.status).toBe(404);
+  });
+
   it("rejects overlapping active sessions", async () => {
     const first = await createCompany("First");
     const second = await createCompany("Second");

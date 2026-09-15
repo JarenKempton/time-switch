@@ -930,3 +930,9 @@ h2 {
     word-break: break-all;
   }
 }
+
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
