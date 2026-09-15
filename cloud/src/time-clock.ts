@@ -42,6 +42,7 @@ import {
 export interface TimeClockEnv {
   TIME_CLOCK: DurableObjectNamespace<TimeClock>;
   ASSETS: Fetcher;
+  LOGOS: R2Bucket;
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
   CF_VERSION_METADATA?: WorkerVersionMetadata;

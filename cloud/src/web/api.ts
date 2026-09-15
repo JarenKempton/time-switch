@@ -79,6 +79,14 @@ export interface DeviceRegistration {
   setupToken: string;
 }
 
+export interface LogoObject {
+  key: string;
+  url: string;
+  size: number;
+  contentType: string | null;
+  uploadedAt: string;
+}
+
 interface Envelope<T> {
   data: T;
 }
@@ -89,7 +97,8 @@ interface ErrorEnvelope {
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (init?.body) headers.set("content-type", "application/json");
+  if (init?.body && !(init.body instanceof FormData))
+    headers.set("content-type", "application/json");
   const response = await fetch(path, { ...init, headers });
   const body = (await response.json().catch(() => ({}))) as Envelope<T> &
     ErrorEnvelope;
@@ -109,6 +118,16 @@ export function query(params: Record<string, string | undefined>): string {
 }
 
 export const timeClock = {
+  logos: () => api<LogoObject[]>("/api/v1/logos"),
+  uploadLogo: (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return api<LogoObject>("/api/v1/logos", { method: "POST", body });
+  },
+  deleteLogo: (key: string) =>
+    api<{ key: string }>(`/api/v1/logos/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+    }),
   companies: (includeArchived = false) =>
     api<Company[]>(
       `/api/v1/companies${query({ includeArchived: includeArchived ? "true" : undefined })}`,

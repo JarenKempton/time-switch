@@ -1,6 +1,13 @@
 import { Hono } from "hono";
 import { requireDashboardAccess } from "./lib/cloudflare-access";
 import { ApiError, errorResponse } from "./lib/http";
+import {
+  LOGO_PATH_PREFIX,
+  deleteLogo,
+  listLogos,
+  serveLogo,
+  uploadLogo,
+} from "./lib/logos";
 import { TimeClock, type TimeClockEnv } from "./time-clock";
 
 export { TimeClock };
@@ -57,6 +64,16 @@ app.all("/device/*", async (context) => {
   return clock(context.env).fetch(request);
 });
 
+app.get(`${LOGO_PATH_PREFIX}:key`, (context) =>
+  serveLogo(context.env.LOGOS, context.req.param("key")),
+);
+app.get("/api/v1/logos", (context) => listLogos(context.env.LOGOS));
+app.post("/api/v1/logos", (context) =>
+  uploadLogo(context.env.LOGOS, context.req.raw),
+);
+app.delete("/api/v1/logos/:key", (context) =>
+  deleteLogo(context.env.LOGOS, context.req.param("key")),
+);
 app.all("/api/*", (context) => clock(context.env).fetch(context.req.raw));
 app.all("*", (context) => context.env.ASSETS.fetch(context.req.raw));
 app.notFound(() =>
