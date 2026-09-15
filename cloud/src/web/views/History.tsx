@@ -111,7 +111,9 @@ export function History({ data }: { data: TimeClockData }) {
       await data.refresh();
     } catch (cause) {
       data.setError(
-        cause instanceof Error ? cause.message : "Unable to delete the session.",
+        cause instanceof Error
+          ? cause.message
+          : "Unable to delete the session.",
       );
     }
   }

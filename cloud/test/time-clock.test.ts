@@ -438,7 +438,9 @@ describe("time clock API", () => {
     const listed = await request<{ data: Array<{ id: string }> }>(
       "/api/v1/sessions",
     );
-    expect(listed.body.data.find((row) => row.id === sessionId)).toBeUndefined();
+    expect(
+      listed.body.data.find((row) => row.id === sessionId),
+    ).toBeUndefined();
 
     const again = await request(`/api/v1/sessions/${sessionId}`, {
       method: "DELETE",
