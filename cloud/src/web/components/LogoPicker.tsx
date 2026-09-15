@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Trash2Icon, UploadIcon, XIcon } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/web/components/ui/alert-dialog";
 import { Button } from "@/web/components/ui/button";
 import { Label } from "@/web/components/ui/label";
 import { timeClock, type LogoObject } from "../api";
@@ -93,23 +104,48 @@ export function LogoPicker({
           >
             <button
               type="button"
+              className="logo-tile-select"
               onClick={() => onChange(logo.url)}
               aria-pressed={value === logo.url}
               title={`${logo.key} · ${formatSize(logo.size)}`}
             >
               <img src={logo.url} alt="" />
             </button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              className="logo-tile-delete"
-              aria-label={`Delete ${logo.key}`}
-              disabled={busy}
-              onClick={() => void remove(logo)}
-            >
-              <Trash2Icon />
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="logo-tile-delete"
+                  aria-label={`Delete ${logo.key}`}
+                  disabled={busy}
+                >
+                  <Trash2Icon />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Delete this logo from storage?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {logo.key} ({formatSize(logo.size)}) is removed from the R2
+                    bucket. Any company using it loses its logo, and this cannot
+                    be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep</AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    onClick={() => void remove(logo)}
+                  >
+                    Delete logo
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         ))}
         <button
