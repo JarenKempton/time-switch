@@ -69,12 +69,7 @@ export function LogoPicker({
 
   return (
     <div className="field-stack">
-      <Label>
-        Logo
-        <span className="ml-1 font-normal text-muted-foreground">
-          optional, stored in R2
-        </span>
-      </Label>
+      <Label>Logo</Label>
       <div className="logo-picker">
         <button
           type="button"
@@ -129,10 +124,6 @@ export function LogoPicker({
           onChange={(event) => void upload(event.target.files?.[0])}
         />
       </div>
-      <p className="text-xs text-muted-foreground">
-        PNG, JPEG, WebP, or SVG up to 1 MB.
-        {logos && logos.length === 0 ? " The bucket is empty so far." : ""}
-      </p>
     </div>
   );
 }

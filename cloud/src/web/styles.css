@@ -217,11 +217,6 @@ h2 {
   gap: 16px;
   margin-bottom: 14px;
 }
-.section-subtitle {
-  margin-top: 4px;
-  color: var(--muted-foreground);
-  font-size: 0.9rem;
-}
 .field-stack {
   display: grid;
   gap: 6px;
@@ -376,7 +371,6 @@ h2 {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: white;
 }
 .company-mark--sm {
   width: 10px;
@@ -982,8 +976,6 @@ h2 {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: white;
-  border-radius: 6px;
 }
 .logo-tile--none,
 .logo-tile--upload {
