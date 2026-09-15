@@ -243,12 +243,7 @@ export function Devices({ data }: { data: TimeClockData }) {
   return (
     <section className="section section--first devices-view">
       <div className="section-heading">
-        <div>
-          <h2>Devices</h2>
-          <p className="section-subtitle">
-            Install, configure, and monitor controllers from one place.
-          </p>
-        </div>
+        <h2>Devices</h2>
         <Button onClick={() => openSetup(null)} disabled={running}>
           <PlusIcon />
           Add device

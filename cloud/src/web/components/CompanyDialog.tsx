@@ -15,7 +15,6 @@ import { Button } from "@/web/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -135,9 +134,6 @@ export function CompanyDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{company ? "Edit company" : "New company"}</DialogTitle>
-          <DialogDescription>
-            How the company appears and when its pay periods roll over.
-          </DialogDescription>
         </DialogHeader>
         <form onSubmit={(event) => void submit(event)} className="grid gap-5">
           <div className="grid gap-4 sm:grid-cols-[1fr_auto]">

@@ -29,12 +29,7 @@ export function Settings({ data }: { data: TimeClockData }) {
     <>
       <section className="section section--first">
         <div className="section-heading">
-          <div>
-            <h2>Companies</h2>
-            <p className="section-subtitle">
-              Each company keeps its own pay-period cadence.
-            </p>
-          </div>
+          <h2>Companies</h2>
           <Button onClick={() => openEditor(null)}>
             <PlusIcon />
             Add company

@@ -93,7 +93,6 @@ export function Dashboard({
             <>
               <div className="hero-label">Clocked out</div>
               <h1>Clocked out</h1>
-              <p>Flip the desk switch or pick a company to start a session.</p>
             </>
           )}
           {!active && (
