@@ -33,13 +33,16 @@
 #define SWITCH_RIGHT_GPIO GPIO_NUM_4
 #define SAMPLE_INTERVAL_MS 10
 #define DEBOUNCE_SAMPLES 8
+// A new position must hold this long before it is recorded. Overshooting
+// through LEFT or RIGHT on the way to MIDDLE therefore creates no session.
+#define SWITCH_SETTLE_MS 750
 #define WIFI_CONNECTED_BIT BIT0
 #define CONFIG_MAGIC 0x54535731U
 #define STATE_MAGIC 0x54535331U
 #define STORAGE_VERSION 1U
 #define MAX_PENDING_OPERATIONS 16
 #define MIN_VALID_UNIX_TIMESTAMP 1704067200LL  // 2024-01-01T00:00:00Z
-#define FIRMWARE_VERSION "0.2.3"
+#define FIRMWARE_VERSION "0.2.4"
 #define HEARTBEAT_INTERVAL_MS 30000
 #define WIFI_RETRY_INITIAL_MS 1000
 #define WIFI_RETRY_MAX_MS 15000
@@ -286,7 +289,7 @@ static bool append_operation_locked(operation_type_t type, const char *session_i
   return true;
 }
 
-static void apply_switch_state(switch_state_t next) {
+static void apply_switch_state(switch_state_t next, time_t occurred_at) {
   if (next == SWITCH_INVALID) {
     ESP_LOGW(TAG, "Ignoring electrically invalid switch state");
     return;
@@ -303,7 +306,6 @@ static void apply_switch_state(switch_state_t next) {
     return;
   }
 
-  const time_t occurred_at = time(NULL);
   persistent_state_t before = state;
   if (state.active_session_id[0] != '\0') {
     if (!append_operation_locked(OPERATION_STOP, state.active_session_id, NULL, occurred_at)) {
@@ -580,6 +582,8 @@ static void switch_task(void *parameter) {
   switch_state_t candidate = read_switch();
   switch_state_t stable = SWITCH_INVALID;
   unsigned matching_samples = 0;
+  TickType_t stable_since_tick = xTaskGetTickCount();
+  time_t stable_since = 0;
 
   while (true) {
     const switch_state_t sample = read_switch();
@@ -591,12 +595,20 @@ static void switch_task(void *parameter) {
     }
     if (matching_samples >= DEBOUNCE_SAMPLES && candidate != stable) {
       stable = candidate;
+      stable_since_tick = xTaskGetTickCount();
+      stable_since = time(NULL);
       ESP_LOGI(TAG, "Switch position=%s gpio3=%d gpio4=%d", switch_state_name(stable),
                gpio_get_level(SWITCH_LEFT_GPIO), gpio_get_level(SWITCH_RIGHT_GPIO));
     }
-    if (stable != SWITCH_INVALID && clock_ready() &&
+    const bool settled =
+        xTaskGetTickCount() - stable_since_tick >= pdMS_TO_TICKS(SWITCH_SETTLE_MS);
+    if (settled && stable != SWITCH_INVALID && clock_ready() &&
         stable != (switch_state_t)state.last_switch_state) {
-      apply_switch_state(stable);
+      // Timestamp the session at the moment the switch landed, not after the
+      // settle window, so recorded hours are not shortened by the hold time.
+      apply_switch_state(stable, stable_since >= MIN_VALID_UNIX_TIMESTAMP
+                                     ? stable_since
+                                     : time(NULL));
     }
     vTaskDelay(pdMS_TO_TICKS(SAMPLE_INTERVAL_MS));
   }
