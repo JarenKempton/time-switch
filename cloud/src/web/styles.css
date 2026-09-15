@@ -971,7 +971,8 @@ h2 {
     border-color 0.15s,
     box-shadow 0.15s;
 }
-.logo-tile > button {
+/* Only the select control fills the tile; the delete button is a corner chip. */
+.logo-tile-select {
   display: grid;
   place-items: center;
   width: 100%;
@@ -1012,10 +1013,9 @@ h2 {
   position: absolute;
   top: 2px;
   right: 2px;
-  opacity: 0;
   background: color-mix(in srgb, var(--background) 85%, transparent);
+  color: var(--muted-foreground);
 }
-.logo-tile:hover .logo-tile-delete,
-.logo-tile-delete:focus-visible {
-  opacity: 1;
+.logo-tile-delete:hover {
+  color: var(--destructive);
 }
