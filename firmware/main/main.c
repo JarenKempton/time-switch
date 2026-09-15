@@ -39,7 +39,7 @@
 #define STORAGE_VERSION 1U
 #define MAX_PENDING_OPERATIONS 16
 #define MIN_VALID_UNIX_TIMESTAMP 1704067200LL  // 2024-01-01T00:00:00Z
-#define FIRMWARE_VERSION "0.2.2"
+#define FIRMWARE_VERSION "0.2.3"
 #define HEARTBEAT_INTERVAL_MS 30000
 #define WIFI_RETRY_INITIAL_MS 1000
 #define WIFI_RETRY_MAX_MS 15000
@@ -654,9 +654,12 @@ static void start_wifi(void) {
   ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20));
   ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
   ESP_ERROR_CHECK(esp_wifi_start());
-  // C3 Super Mini boards have very small PCB antennas. Use the ESP32-C3's
-  // supported 20 dBm ceiling so authentication frames reliably reach the AP.
-  ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(80));
+  // C3 Super Mini boards have a poorly matched PCB antenna. At full power the
+  // reflected energy distorts the transmitted frame, so the access point hears
+  // the controller but cannot decode its authentication request (reason 2,
+  // WIFI_REASON_AUTH_EXPIRE) even at a healthy RSSI. Capping the radio at
+  // 8.5 dBm (units of 0.25 dBm) is the widely reported fix for these boards.
+  ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(34));
   emit_status("wifi", "connecting");
   ESP_ERROR_CHECK(esp_wifi_connect());
 
