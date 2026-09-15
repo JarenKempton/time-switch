@@ -46,6 +46,9 @@ The Wi-Fi password never reaches the Worker or its database. Safari and iOS can 
 
 The controller uses 2.4 GHz 802.11b/g in 20 MHz mode, scans all channels for
 matching mesh access points, and gracefully leaves Wi-Fi before a reinstall.
+Transmit power is capped at 8.5 dBm because the ESP32-C3 Super Mini antenna
+distorts frames at full power, which the access point reports as an
+authentication timeout (reason 2) even with a strong signal.
 Setup reports the ESP-IDF reason code and signal level when the access point
 rejects or times out a connection; the progress indicator remains indeterminate
 during network registration and reaches 100% only after the service confirms the
