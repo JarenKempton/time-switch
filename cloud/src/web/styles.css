@@ -414,9 +414,9 @@ h2 {
   --company-color: var(--primary);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 20px 40px;
-  align-items: center;
-  padding: 24px 28px;
+  gap: 0 40px;
+  align-items: start;
+  padding: 24px 28px 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   background: var(--card);
@@ -444,10 +444,19 @@ h2 {
   align-items: center;
   gap: 14px;
 }
-.hero-side {
+.hero-footer {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 28px;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 22px -28px 0;
+  padding: 12px 28px;
+  border-top: 1px solid var(--border);
+}
+.hero-footer-note {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
 }
 .hero-timer {
   text-align: right;
@@ -1135,8 +1144,12 @@ h2 {
     gap: 22px;
     padding: 22px;
   }
-  .hero-side {
-    justify-content: space-between;
+  .hero {
+    padding: 22px 22px 0;
+  }
+  .hero-footer {
+    margin: 18px -22px 0;
+    padding: 12px 22px;
   }
   .hero-timer {
     text-align: left;

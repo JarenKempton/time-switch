@@ -119,17 +119,15 @@ export function Dashboard({ data }: { data: TimeClockData }) {
             <h1>Clocked out</h1>
           )}
         </div>
-        <div className="hero-side">
-          <div className="hero-timer">
-            <span>{active ? "This session" : "Today"}</span>
-            <strong className="tabular">
-              {active
-                ? formatClock(activeSeconds)
-                : formatDuration(todaySeconds)}
-            </strong>
-          </div>
+        <div className="hero-timer">
+          <span>{active ? "This session" : "Today"}</span>
+          <strong className="tabular">
+            {active ? formatClock(activeSeconds) : formatDuration(todaySeconds)}
+          </strong>
+        </div>
+        <footer className="hero-footer">
           {loading ? (
-            <Skeleton className="h-9 w-28" />
+            <Skeleton className="h-9 w-32" />
           ) : active ? (
             <Button variant="outline" onClick={() => void stop()}>
               Clock out
@@ -137,12 +135,12 @@ export function Dashboard({ data }: { data: TimeClockData }) {
           ) : (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button disabled={!activeCompanies.length}>
-                  Start
+                <Button variant="outline" disabled={!activeCompanies.length}>
+                  Start session
                   <ChevronDownIcon />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="start">
                 {activeCompanies.map((company) => (
                   <DropdownMenuItem
                     key={company.id}
@@ -155,7 +153,12 @@ export function Dashboard({ data }: { data: TimeClockData }) {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-        </div>
+          {active && (
+            <span className="hero-footer-note">
+              {formatDuration(todaySeconds)} today
+            </span>
+          )}
+        </footer>
       </section>
 
       {!loading && !companies.length ? (
