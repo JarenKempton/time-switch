@@ -415,10 +415,10 @@ h2 {
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 24px 32px;
-  align-items: end;
-  padding: 30px 32px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px 40px;
+  align-items: center;
+  padding: 26px 28px;
   border: 1px solid var(--border);
   border-radius: var(--radius-2xl);
   background: var(--card);
@@ -426,59 +426,100 @@ h2 {
 .hero--active {
   border-color: color-mix(in srgb, var(--company-color) 30%, var(--border));
 }
+.hero--active::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    120% 90% at 100% 0%,
+    color-mix(in srgb, var(--company-color) 14%, transparent),
+    transparent 60%
+  );
+}
+.hero > * {
+  position: relative;
+  min-width: 0;
+}
 .hero-label {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   color: var(--muted-foreground);
   font-size: 0.85rem;
   font-weight: 500;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .hero h1 {
-  font-size: clamp(1.6rem, 3vw, 2.2rem);
-  line-height: 1.05;
-  letter-spacing: -0.04em;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
   font-weight: 700;
-}
-.hero-main > p,
-.hero-company p {
-  margin-top: 8px;
-  color: var(--muted-foreground);
 }
 .hero-company {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
 }
-.clock-out {
-  grid-column: 1 / -1;
-  width: 100%;
-  height: 44px;
-  margin-top: 4px;
-  font-weight: 600;
+.start-list {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
 }
-.clock-out svg {
-  color: var(--destructive);
-}
-.clock-out:hover {
-  background: var(--muted);
-}
-.hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 24px;
-}
-.clock-in {
+.start-row {
   --company-color: var(--primary);
-  border-color: color-mix(in srgb, var(--company-color) 40%, var(--border));
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
-.clock-in svg {
+.start-row:hover {
+  border-color: color-mix(in srgb, var(--company-color) 45%, var(--border));
+  background: color-mix(in srgb, var(--company-color) 8%, var(--background));
+}
+.start-row > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.start-row em {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-style: normal;
+  font-size: 0.8rem;
+  font-weight: 600;
   color: var(--company-color);
 }
-.clock-in:hover {
-  background: color-mix(in srgb, var(--company-color) 12%, transparent);
+.start-row em svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+.hero-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 16px;
+  min-width: 200px;
 }
 .hero-timer {
   text-align: right;
@@ -487,14 +528,13 @@ h2 {
   display: block;
   color: var(--muted-foreground);
   font-size: 0.85rem;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 .hero-timer strong {
   display: block;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  font-size: clamp(2rem, 4vw, 3rem);
+  font-size: clamp(1.9rem, 3.4vw, 2.6rem);
   line-height: 1;
-  font-weight: 500;
+  font-weight: 650;
   letter-spacing: -0.04em;
   color: var(--foreground);
 }
@@ -505,19 +545,16 @@ h2 {
   font-size: 0.85rem;
   color: var(--muted-foreground);
 }
-.hero--active::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    120% 90% at 100% 0%,
-    color-mix(in srgb, var(--company-color) 16%, transparent),
-    transparent 60%
-  );
+.clock-out {
+  height: 40px;
+  padding: 0 18px;
+  font-weight: 600;
 }
-.hero > * {
-  position: relative;
+.clock-out svg {
+  color: var(--destructive);
+}
+.clock-out:hover {
+  background: var(--muted);
 }
 
 /* ---------- Today ---------- */
@@ -527,6 +564,37 @@ h2 {
   grid-template-columns: minmax(0, 1fr) 280px;
   gap: 24px;
   align-items: start;
+}
+.today-main-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--card);
+}
+.today-main-heading h2 {
+  font-size: 1rem;
+}
+.today-main .timeline {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.today-empty {
+  display: grid;
+  gap: 4px;
+  padding: 40px 24px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+  background: var(--card);
+  color: var(--muted-foreground);
+}
+.today-empty strong {
+  color: var(--foreground);
 }
 .today-side {
   position: sticky;
@@ -663,8 +731,7 @@ h2 {
   align-content: start;
   gap: 1px 10px;
   padding: 6px 10px 6px 12px;
-  border: 0;
-  border-left: 3px solid var(--company-color);
+  border: 1px solid color-mix(in srgb, var(--company-color) 40%, transparent);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--company-color) 16%, var(--card));
   color: var(--foreground);
@@ -678,8 +745,7 @@ h2 {
 }
 .timeline-block:hover {
   background: color-mix(in srgb, var(--company-color) 26%, var(--card));
-  box-shadow: 0 0 0 1px
-    color-mix(in srgb, var(--company-color) 45%, transparent);
+  border-color: color-mix(in srgb, var(--company-color) 70%, transparent);
 }
 .timeline-block strong {
   grid-area: name;
@@ -1193,8 +1259,16 @@ h2 {
     gap: 22px;
     padding: 22px;
   }
+  .hero-side {
+    flex-direction: row;
+    align-items: center;
+    min-width: 0;
+  }
   .hero-timer {
     text-align: left;
+  }
+  .start-list {
+    max-width: none;
   }
   .today {
     grid-template-columns: 1fr;

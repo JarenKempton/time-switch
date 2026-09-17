@@ -106,65 +106,66 @@ export function Dashboard({ data }: { data: TimeClockData }) {
                   <i aria-hidden="true" />
                   Live
                 </span>
-                Clocked in
+                Clocked in since {formatTime(active.startedAt)}
               </div>
               <div className="hero-company">
                 <CompanyMark company={active.company} size="xl" />
-                <div>
-                  <h1>{active.company.name}</h1>
-                  <p>Since {formatTime(active.startedAt)}</p>
-                </div>
+                <h1>{active.company.name}</h1>
               </div>
             </>
           ) : (
             <>
               <div className="hero-label">{formatWeekday(now)}</div>
               <h1>Clocked out</h1>
-              <p>Pick a company to start a session.</p>
+              {loading ? (
+                <Skeleton className="mt-5 h-24" />
+              ) : (
+                <ul className="start-list">
+                  {activeCompanies.map((company) => (
+                    <li key={company.id} style={companyStyle(company)}>
+                      <button
+                        type="button"
+                        className="start-row"
+                        onClick={() => void start(company)}
+                      >
+                        <CompanyMark company={company} size="md" />
+                        <span>{company.name}</span>
+                        <em>
+                          <PlayIcon />
+                          Start
+                        </em>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </>
           )}
-          {!active && (
-            <div className="hero-actions">
-              {loading ? (
-                <Skeleton className="h-9 w-40" />
-              ) : (
-                activeCompanies.map((company) => (
-                  <Button
-                    key={company.id}
-                    size="lg"
-                    variant="outline"
-                    className="clock-in"
-                    style={companyStyle(company)}
-                    onClick={() => void start(company)}
-                  >
-                    <PlayIcon className="fill-current" />
-                    {company.name}
-                  </Button>
-                ))
-              )}
-            </div>
-          )}
         </div>
-        <div className="hero-timer">
-          <span>{active ? "This session" : "Today"}</span>
-          <strong className="tabular">
-            {active ? formatClock(activeSeconds) : formatDuration(todaySeconds)}
-          </strong>
+        <div className="hero-side">
+          <div className="hero-timer">
+            <span>{active ? "This session" : "Today"}</span>
+            <strong className="tabular">
+              {active
+                ? formatClock(activeSeconds)
+                : formatDuration(todaySeconds)}
+            </strong>
+            {active && (
+              <em className="tabular">{formatDuration(todaySeconds)} today</em>
+            )}
+          </div>
           {active && (
-            <em className="tabular">{formatDuration(todaySeconds)} today</em>
+            <Button
+              size="lg"
+              variant="outline"
+              className="clock-out"
+              onClick={() => void stop()}
+            >
+              <SquareIcon className="fill-current" />
+              Clock out
+            </Button>
           )}
         </div>
-        {active && (
-          <Button
-            size="lg"
-            variant="outline"
-            className="clock-out"
-            onClick={() => void stop()}
-          >
-            <SquareIcon className="fill-current" />
-            Clock out
-          </Button>
-        )}
       </section>
 
       {!loading && !companies.length ? (
@@ -174,7 +175,7 @@ export function Dashboard({ data }: { data: TimeClockData }) {
       ) : (
         <section className="section today">
           <div className="today-main">
-            <div className="section-heading">
+            <div className="today-main-heading">
               <h2>Today</h2>
               <Button
                 variant="ghost"
@@ -195,7 +196,7 @@ export function Dashboard({ data }: { data: TimeClockData }) {
                 onSelect={setEditing}
               />
             ) : (
-              <div className="empty-panel">
+              <div className="today-empty">
                 <strong>Nothing logged yet today</strong>
                 <p>Sessions show up here as blocks once you clock in.</p>
               </div>
