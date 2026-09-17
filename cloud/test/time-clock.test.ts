@@ -557,3 +557,275 @@ describe("hour retrievals", () => {
     expect(bad.status).toBe(422);
   });
 });
+
+describe("session cleanup", () => {
+  interface PurgeBody {
+    data: {
+      dryRun: boolean;
+      purgedCount: number;
+      purgedSeconds: number;
+      ids: string[];
+      byCompany: Array<{ name: string; count: number; totalSeconds: number }>;
+      affectedRetrievals: Array<{
+        companyName: string;
+        totalSeconds: number;
+        staleSeconds: number;
+      }>;
+    };
+  }
+
+  /** Records one finished session. Only one may run at a time. */
+  async function record(
+    companyId: string,
+    id: string,
+    startedAt: string,
+    endedAt: string,
+  ) {
+    await request("/api/v1/sessions", {
+      method: "POST",
+      body: JSON.stringify({ id, companyId, startedAt }),
+    });
+    await request(`/api/v1/sessions/${id}/stop`, {
+      method: "POST",
+      body: JSON.stringify({ endedAt }),
+    });
+  }
+
+  function purge(body: Record<string, unknown>) {
+    return request<PurgeBody>("/api/v1/sessions/purge", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  const short = "018f47a0-7b8c-4c5d-9e6f-000000000001";
+  const alsoShort = "018f47a0-7b8c-4c5d-9e6f-000000000002";
+  const long = "018f47a0-7b8c-4c5d-9e6f-000000000003";
+
+  it("deletes one session and refuses to delete it twice", async () => {
+    const company = await createCompany();
+    await record(
+      company.body.data.id,
+      short,
+      "2026-09-12T09:00:00.000Z",
+      "2026-09-12T09:00:20.000Z",
+    );
+
+    const deleted = await request<{ data: { id: string } }>(
+      `/api/v1/sessions/${short}`,
+      { method: "DELETE" },
+    );
+    expect(deleted.status).toBe(200);
+    expect(deleted.body.data.id).toBe(short);
+
+    const remaining = await request<{ data: unknown[] }>("/api/v1/sessions");
+    expect(remaining.body.data).toHaveLength(0);
+
+    const again = await request<{ error: { code: string } }>(
+      `/api/v1/sessions/${short}`,
+      { method: "DELETE" },
+    );
+    expect(again.status).toBe(404);
+    expect(again.body.error.code).toBe("session_not_found");
+  });
+
+  it("clears the active session when it is deleted", async () => {
+    const company = await createCompany();
+    const created = await request<{ data: { id: string } }>(
+      "/api/v1/sessions",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          companyId: company.body.data.id,
+          startedAt: "2026-09-12T09:00:00.000Z",
+        }),
+      },
+    );
+
+    await request(`/api/v1/sessions/${created.body.data.id}`, {
+      method: "DELETE",
+    });
+    const status = await request<{ data: { activeSession: unknown } }>(
+      "/api/v1/status",
+    );
+    expect(status.body.data.activeSession).toBeNull();
+  });
+
+  it("previews a purge without touching the ledger", async () => {
+    const company = await createCompany();
+    const companyId = company.body.data.id;
+    await record(
+      companyId,
+      short,
+      "2026-09-12T09:00:00.000Z",
+      "2026-09-12T09:00:30.000Z",
+    );
+    await record(
+      companyId,
+      long,
+      "2026-09-12T10:00:00.000Z",
+      "2026-09-12T12:00:00.000Z",
+    );
+
+    const preview = await purge({ dryRun: true });
+    expect(preview.status).toBe(200);
+    expect(preview.body.data).toMatchObject({
+      dryRun: true,
+      purgedCount: 1,
+      purgedSeconds: 30,
+      ids: [short],
+    });
+    expect(preview.body.data.byCompany).toEqual([
+      { companyId, name: "Northstar", count: 1, totalSeconds: 30 },
+    ]);
+
+    const remaining = await request<{ data: unknown[] }>("/api/v1/sessions");
+    expect(remaining.body.data).toHaveLength(2);
+  });
+
+  it("purges short finished sessions and spares long and running ones", async () => {
+    const company = await createCompany();
+    const companyId = company.body.data.id;
+    await record(
+      companyId,
+      short,
+      "2026-09-12T09:00:00.000Z",
+      "2026-09-12T09:00:02.000Z",
+    );
+    await record(
+      companyId,
+      alsoShort,
+      "2026-09-12T09:30:00.000Z",
+      "2026-09-12T09:30:59.000Z",
+    );
+    await record(
+      companyId,
+      long,
+      "2026-09-12T10:00:00.000Z",
+      "2026-09-12T12:00:00.000Z",
+    );
+    // Exactly at the cutoff: the comparison is exclusive, so this one stays.
+    await record(
+      companyId,
+      "018f47a0-7b8c-4c5d-9e6f-000000000004",
+      "2026-09-12T13:00:00.000Z",
+      "2026-09-12T13:01:00.000Z",
+    );
+    const running = await request<{ data: { id: string } }>(
+      "/api/v1/sessions",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          companyId,
+          startedAt: new Date(Date.now() - 5_000).toISOString(),
+        }),
+      },
+    );
+
+    const purged = await purge({});
+    expect(purged.status).toBe(200);
+    expect(purged.body.data).toMatchObject({
+      dryRun: false,
+      maxDurationSeconds: 60,
+      purgedCount: 2,
+      purgedSeconds: 61,
+    });
+    expect(purged.body.data.ids.sort()).toEqual([short, alsoShort].sort());
+
+    const remaining = await request<{ data: Array<{ id: string }> }>(
+      "/api/v1/sessions",
+    );
+    expect(remaining.body.data.map((session) => session.id).sort()).toEqual(
+      [
+        long,
+        "018f47a0-7b8c-4c5d-9e6f-000000000004",
+        running.body.data.id,
+      ].sort(),
+    );
+  });
+
+  it("names the retrieved pay periods a purge leaves reading high", async () => {
+    const company = await createCompany("Retrieval Co");
+    const companyId = company.body.data.id;
+    await record(
+      companyId,
+      long,
+      "2026-09-10T09:00:00.000Z",
+      "2026-09-10T12:00:00.000Z",
+    );
+    await record(
+      companyId,
+      short,
+      "2026-09-10T13:00:00.000Z",
+      "2026-09-10T13:00:45.000Z",
+    );
+    const retrieved = await request<{ data: { totalSeconds: number } }>(
+      `/api/v1/companies/${companyId}/retrievals`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          periodStart: "2026-09-01T00:00:00.000Z",
+          periodEnd: "2026-09-15T00:00:00.000Z",
+          nextPeriodEnd: "2026-09-29T00:00:00.000Z",
+        }),
+      },
+    );
+    expect(retrieved.body.data.totalSeconds).toBe(10_845);
+
+    const purged = await purge({});
+    expect(purged.body.data.purgedCount).toBe(1);
+    expect(purged.body.data.affectedRetrievals).toHaveLength(1);
+    expect(purged.body.data.affectedRetrievals[0]).toMatchObject({
+      companyName: "Retrieval Co",
+      totalSeconds: 10_845,
+      staleSeconds: 45,
+    });
+
+    // The stored retrieval keeps its figure; only the ledger shrank.
+    const retrievals = await request<{
+      data: Array<{ totalSeconds: number }>;
+    }>("/api/v1/retrievals");
+    expect(retrievals.body.data[0].totalSeconds).toBe(10_845);
+    const hours = await request<{ data: { totalSeconds: number } }>(
+      `/api/v1/companies/${companyId}/hours?from=2026-09-01T00:00:00.000Z&to=2026-09-15T00:00:00.000Z`,
+    );
+    expect(hours.body.data.totalSeconds).toBe(10_800);
+  });
+
+  it("honors a custom cutoff and a company filter", async () => {
+    const first = await createCompany("First");
+    const second = await createCompany("Second");
+    await record(
+      first.body.data.id,
+      short,
+      "2026-09-12T09:00:00.000Z",
+      "2026-09-12T09:04:00.000Z",
+    );
+    await record(
+      second.body.data.id,
+      alsoShort,
+      "2026-09-12T10:00:00.000Z",
+      "2026-09-12T10:04:00.000Z",
+    );
+
+    const purged = await purge({
+      maxDurationSeconds: 300,
+      companyId: first.body.data.id,
+    });
+    expect(purged.body.data.purgedCount).toBe(1);
+    expect(purged.body.data.ids).toEqual([short]);
+
+    const remaining = await request<{ data: Array<{ id: string }> }>(
+      "/api/v1/sessions",
+    );
+    expect(remaining.body.data.map((session) => session.id)).toEqual([
+      alsoShort,
+    ]);
+  });
+
+  it("rejects a purge sent as GET", async () => {
+    const response = await dashboardFetch("/api/v1/sessions/purge");
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("POST");
+  });
+});

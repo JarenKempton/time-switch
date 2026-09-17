@@ -95,6 +95,19 @@ export function parseDate(value: string): Date {
   return new Date(value);
 }
 
+/**
+ * Bulk removal of stray ledger entries. The cutoff is exclusive, so the
+ * default purges anything that ran for less than a full minute.
+ */
+export const purgeSessionsSchema = z.object({
+  maxDurationSeconds: z.number().int().positive().max(86_400).default(60),
+  /** When true the response reports what would go and nothing is deleted. */
+  dryRun: z.boolean().default(false),
+  companyId: z.uuid().optional(),
+  from: z.iso.datetime({ offset: true }).optional(),
+  to: z.iso.datetime({ offset: true }).optional(),
+});
+
 export const createRetrievalSchema = z
   .object({
     periodStart: z.iso.datetime({ offset: true }),

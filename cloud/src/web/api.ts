@@ -63,6 +63,42 @@ export interface RetrievalInput {
   reanchorDate?: string;
 }
 
+export interface PurgeInput {
+  maxDurationSeconds?: number;
+  dryRun?: boolean;
+  companyId?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface PurgeResult {
+  dryRun: boolean;
+  maxDurationSeconds: number;
+  purgedCount: number;
+  purgedSeconds: number;
+  ids: string[];
+  byCompany: Array<{
+    companyId: string;
+    name: string;
+    count: number;
+    totalSeconds: number;
+  }>;
+  /**
+   * Closed pay periods that contained a purged session. Their stored total
+   * reads high by `staleSeconds` until the retrieval is undone and redone.
+   */
+  affectedRetrievals: Array<{
+    id: string;
+    companyId: string;
+    companyName: string;
+    periodStart: string;
+    periodEnd: string;
+    totalSeconds: number;
+    staleSeconds: number;
+  }>;
+  status: Status;
+}
+
 export interface Device {
   id: string;
   name: string;
@@ -153,6 +189,13 @@ export const timeClock = {
   updateSession: (id: string, body: unknown) =>
     api<Session>(`/api/v1/sessions/${id}`, {
       method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteSession: (id: string) =>
+    api<{ id: string }>(`/api/v1/sessions/${id}`, { method: "DELETE" }),
+  purgeSessions: (body: PurgeInput) =>
+    api<PurgeResult>("/api/v1/sessions/purge", {
+      method: "POST",
       body: JSON.stringify(body),
     }),
   status: () => api<Status>("/api/v1/status"),

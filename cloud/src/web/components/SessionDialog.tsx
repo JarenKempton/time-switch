@@ -1,4 +1,16 @@
 import { type FormEvent, useEffect, useState } from "react";
+import { Trash2Icon } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/web/components/ui/alert-dialog";
 import { Button } from "@/web/components/ui/button";
 import {
   Dialog,
@@ -32,18 +44,20 @@ function fromLocalInput(value: string): string | null {
   return new Date(value).toISOString();
 }
 
-/** Corrects a ledger entry: company, start, end, and note. */
+/** Corrects a ledger entry: company, start, end, and note — or removes it. */
 export function SessionDialog({
   session,
   companies,
   onOpenChange,
   onSaved,
+  onDeleted,
   onError,
 }: {
   session: Session | null;
   companies: Company[];
   onOpenChange: (open: boolean) => void;
   onSaved: () => Promise<void>;
+  onDeleted: () => Promise<void>;
   onError: (message: string) => void;
 }) {
   const open = session !== null;
@@ -55,6 +69,22 @@ export function SessionDialog({
     setCompanyId(session?.companyId ?? "");
     setSaving(false);
   }, [open, session]);
+
+  async function remove() {
+    if (!session) return;
+    setSaving(true);
+    try {
+      await timeClock.deleteSession(session.id);
+      await onDeleted();
+    } catch (cause) {
+      onError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to delete the session.",
+      );
+      setSaving(false);
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -141,17 +171,49 @@ export function SessionDialog({
                 maxLength={500}
               />
             </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? "Saving…" : "Save session"}
-              </Button>
+            <DialogFooter className="sm:justify-between">
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    className="text-destructive hover:text-destructive"
+                    disabled={saving}
+                  >
+                    <Trash2Icon />
+                    Delete
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this session?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      The entry leaves the ledger for good. Hours already
+                      retrieved keep the total they were given, so undo and redo
+                      that retrieval if this session fell inside a closed pay
+                      period.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => void remove()}>
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={saving}>
+                  {saving ? "Saving…" : "Save session"}
+                </Button>
+              </div>
             </DialogFooter>
           </form>
         )}

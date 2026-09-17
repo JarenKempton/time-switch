@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { DownloadIcon, PencilIcon, Undo2Icon } from "lucide-react";
+import { DownloadIcon, PencilIcon, Trash2Icon, Undo2Icon } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +32,7 @@ import {
 import { dateOnly, toDateInput } from "../lib/pay-period";
 import { timeClock, type Session, type Summary } from "../api";
 import { CompanyMark, companyStyle } from "../components/CompanyMark";
+import { PurgeSessionsDialog } from "../components/PurgeSessionsDialog";
 import { SessionDialog } from "../components/SessionDialog";
 import {
   formatDateTime,
@@ -55,6 +56,7 @@ export function History({ data }: { data: TimeClockData }) {
   const [rows, setRows] = useState<Session[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [editing, setEditing] = useState<Session | null>(null);
+  const [purging, setPurging] = useState(false);
 
   const range = useMemo(() => {
     const start = /^\d{4}-\d{2}-\d{2}$/.test(from) ? dateOnly(from) : null;
@@ -293,6 +295,15 @@ export function History({ data }: { data: TimeClockData }) {
           <span className="text-sm text-muted-foreground">
             {rows.length} in range
           </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPurging(true)}
+            className="ml-auto"
+          >
+            <Trash2Icon />
+            Purge short
+          </Button>
         </div>
         {rows.length ? (
           <div className="table-card">
@@ -363,6 +374,17 @@ export function History({ data }: { data: TimeClockData }) {
           setEditing(null);
           await data.refresh();
         }}
+        onDeleted={async () => {
+          setEditing(null);
+          await data.refresh();
+        }}
+        onError={data.setError}
+      />
+
+      <PurgeSessionsDialog
+        open={purging}
+        onOpenChange={setPurging}
+        onPurged={data.refresh}
         onError={data.setError}
       />
     </>

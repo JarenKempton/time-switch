@@ -1,5 +1,19 @@
 import { DurableObject } from "cloudflare:workers";
-import { and, asc, desc, eq, gt, isNull, lt, ne, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   drizzle,
   type DrizzleSqliteDODatabase,
@@ -33,6 +47,7 @@ import {
   heartbeatDeviceSchema,
   parseDate,
   provisionDeviceSchema,
+  purgeSessionsSchema,
   startSessionSchema,
   stopSessionSchema,
   updateCompanySchema,
@@ -57,6 +72,8 @@ interface LiveMessage {
     | "session.started"
     | "session.stopped"
     | "session.updated"
+    | "session.deleted"
+    | "sessions.purged"
     | "company.changed"
     | "device.changed"
     | "retrieval.changed";
@@ -179,6 +196,9 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     );
     this.app.all("/api/v1/sessions", (context) =>
       this.handleSessions(context.req.raw, new URL(context.req.url)),
+    );
+    this.app.all("/api/v1/sessions/purge", (context) =>
+      this.purgeSessions(context.req.raw),
     );
     this.app.all("/api/v1/sessions/:id", (context) =>
       this.handleSession(context.req.raw, context.req.param("id")),
@@ -713,7 +733,9 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     if (stopMatch) return this.handleStop(request, stopMatch[1]);
     if (!zUuid(id))
       throw new ApiError(400, "invalid_id", "Session ID is invalid.");
-    if (request.method !== "PATCH") return methodNotAllowed(["PATCH"]);
+    if (request.method === "DELETE") return this.deleteSession(id);
+    if (request.method !== "PATCH")
+      return methodNotAllowed(["PATCH", "DELETE"]);
     const input = updateSessionSchema.parse(await readJson(request));
     const current = this.db
       .select()
@@ -842,6 +864,146 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
           result.session.startedAt.getTime()) /
           1000,
       ),
+      status: this.getStatus(),
+    });
+  }
+
+  /**
+   * Removes one ledger entry for good. Deleting the active session leaves the
+   * clock stopped. Recorded retrievals keep the total they were given at
+   * retrieval time, so undo and redo one to fold the change into a closed
+   * pay period.
+   */
+  private deleteSession(id: string): Response {
+    const existing = this.db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .get();
+    if (!existing)
+      throw new ApiError(404, "session_not_found", "Session not found.");
+    this.db.delete(sessions).where(eq(sessions.id, id)).run();
+    this.broadcast({ type: "session.deleted", status: this.getStatus() });
+    return ok({ id });
+  }
+
+  /**
+   * Purges finished sessions shorter than a cutoff — the accidental flips a
+   * three-position switch collects. The active session is never purged because
+   * its duration is not final yet. Send dryRun to see the damage first.
+   *
+   * Recorded retrievals are left untouched: each stores the total it was given
+   * when the hours were retrieved. The response therefore names every closed
+   * period that contained a purged session, with the seconds its stored total
+   * now reads high, so a stale figure is visible rather than silent.
+   */
+  private async purgeSessions(request: Request): Promise<Response> {
+    if (request.method !== "POST") return methodNotAllowed(["POST"]);
+    const input = purgeSessionsSchema.parse(await readJson(request));
+    if (input.companyId && !zUuid(input.companyId))
+      throw new ApiError(400, "invalid_company_id", "Company ID is invalid.");
+    const cutoffMs = input.maxDurationSeconds * 1000;
+    const from = input.from ? parseDate(input.from) : null;
+    const to = input.to ? parseDate(input.to) : null;
+
+    const conditions = [
+      isNotNull(sessions.endedAt),
+      sql`${sessions.endedAt} - ${sessions.startedAt} < ${cutoffMs}`,
+    ];
+    if (input.companyId)
+      conditions.push(eq(sessions.companyId, input.companyId));
+    if (from) conditions.push(gte(sessions.startedAt, from));
+    if (to) conditions.push(lt(sessions.startedAt, to));
+    const matching = and(...conditions)!;
+
+    const result = this.db.transaction((tx) => {
+      const rows = tx
+        .select({ session: sessions, company: companies })
+        .from(sessions)
+        .innerJoin(companies, eq(sessions.companyId, companies.id))
+        .where(matching)
+        .orderBy(desc(sessions.startedAt))
+        .all()
+        .map(({ session, company }) => ({ ...session, company }));
+
+      const companyIds = [...new Set(rows.map((row) => row.companyId))];
+      const closedPeriods = companyIds.length
+        ? tx
+            .select({ retrieval: hourRetrievals, company: companies })
+            .from(hourRetrievals)
+            .innerJoin(companies, eq(hourRetrievals.companyId, companies.id))
+            .where(inArray(hourRetrievals.companyId, companyIds))
+            .all()
+        : [];
+
+      if (rows.length && !input.dryRun)
+        tx.delete(sessions).where(matching).run();
+
+      return { rows, closedPeriods };
+    });
+
+    const seconds = (session: Session) =>
+      Math.max(
+        0,
+        Math.round(
+          (session.endedAt!.getTime() - session.startedAt.getTime()) / 1000,
+        ),
+      );
+    const purgedSeconds = result.rows.reduce(
+      (total, row) => total + seconds(row),
+      0,
+    );
+
+    const byCompany = [...new Set(result.rows.map((row) => row.companyId))].map(
+      (companyId) => {
+        const owned = result.rows.filter((row) => row.companyId === companyId);
+        return {
+          companyId,
+          name: owned[0].company.name,
+          count: owned.length,
+          totalSeconds: owned.reduce((total, row) => total + seconds(row), 0),
+        };
+      },
+    );
+
+    const affectedRetrievals = result.closedPeriods
+      .map(({ retrieval, company }) => {
+        const staleSeconds = result.rows.reduce((total, row) => {
+          if (row.companyId !== retrieval.companyId) return total;
+          const start = Math.max(
+            row.startedAt.getTime(),
+            retrieval.periodStart.getTime(),
+          );
+          const end = Math.min(
+            row.endedAt!.getTime(),
+            retrieval.periodEnd.getTime(),
+          );
+          return end > start ? total + Math.round((end - start) / 1000) : total;
+        }, 0);
+        return {
+          id: retrieval.id,
+          companyId: retrieval.companyId,
+          companyName: company.name,
+          periodStart: retrieval.periodStart,
+          periodEnd: retrieval.periodEnd,
+          totalSeconds: retrieval.totalSeconds,
+          staleSeconds,
+        };
+      })
+      .filter((retrieval) => retrieval.staleSeconds > 0)
+      .sort((a, b) => b.periodEnd.getTime() - a.periodEnd.getTime());
+
+    if (result.rows.length && !input.dryRun)
+      this.broadcast({ type: "sessions.purged", status: this.getStatus() });
+
+    return ok({
+      dryRun: input.dryRun,
+      maxDurationSeconds: input.maxDurationSeconds,
+      purgedCount: result.rows.length,
+      purgedSeconds,
+      ids: result.rows.map((row) => row.id),
+      byCompany,
+      affectedRetrievals,
       status: this.getStatus(),
     });
   }
