@@ -412,43 +412,26 @@ h2 {
 
 .hero {
   --company-color: var(--primary);
-  position: relative;
-  overflow: hidden;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 24px 40px;
+  gap: 20px 40px;
   align-items: center;
-  padding: 26px 28px;
+  padding: 24px 28px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-xl);
   background: var(--card);
 }
 .hero--active {
-  border-color: color-mix(in srgb, var(--company-color) 30%, var(--border));
-}
-.hero--active::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    120% 90% at 100% 0%,
-    color-mix(in srgb, var(--company-color) 14%, transparent),
-    transparent 60%
-  );
+  border-color: color-mix(in srgb, var(--company-color) 35%, var(--border));
 }
 .hero > * {
-  position: relative;
   min-width: 0;
 }
 .hero-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
   color: var(--muted-foreground);
   font-size: 0.85rem;
   font-weight: 500;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 .hero h1 {
   font-size: clamp(1.5rem, 3vw, 2rem);
@@ -461,65 +444,10 @@ h2 {
   align-items: center;
   gap: 14px;
 }
-.start-list {
-  list-style: none;
-  margin: 18px 0 0;
-  padding: 0;
-  display: grid;
-  gap: 8px;
-  max-width: 420px;
-}
-.start-row {
-  --company-color: var(--primary);
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--background);
-  color: var(--foreground);
-  font: inherit;
-  font-size: 0.95rem;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color 0.15s,
-    background 0.15s;
-}
-.start-row:hover {
-  border-color: color-mix(in srgb, var(--company-color) 45%, var(--border));
-  background: color-mix(in srgb, var(--company-color) 8%, var(--background));
-}
-.start-row > span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.start-row em {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-style: normal;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--company-color);
-}
-.start-row em svg {
-  width: 12px;
-  height: 12px;
-  fill: currentColor;
-}
 .hero-side {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: flex-end;
-  gap: 16px;
-  min-width: 200px;
+  align-items: center;
+  gap: 28px;
 }
 .hero-timer {
   text-align: right;
@@ -528,33 +456,14 @@ h2 {
   display: block;
   color: var(--muted-foreground);
   font-size: 0.85rem;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .hero-timer strong {
   display: block;
-  font-size: clamp(1.9rem, 3.4vw, 2.6rem);
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
   line-height: 1;
   font-weight: 650;
   letter-spacing: -0.04em;
-  color: var(--foreground);
-}
-.hero-timer em {
-  display: block;
-  margin-top: 8px;
-  font-style: normal;
-  font-size: 0.85rem;
-  color: var(--muted-foreground);
-}
-.clock-out {
-  height: 40px;
-  padding: 0 18px;
-  font-weight: 600;
-}
-.clock-out svg {
-  color: var(--destructive);
-}
-.clock-out:hover {
-  background: var(--muted);
 }
 
 /* ---------- Today ---------- */
@@ -789,11 +698,7 @@ h2 {
   display: none;
 }
 .timeline-block--live {
-  background-image: repeating-linear-gradient(
-    -45deg,
-    transparent 0 8px,
-    color-mix(in srgb, var(--company-color) 8%, transparent) 8px 16px
-  );
+  border-style: dashed;
 }
 .timeline-now {
   position: absolute;
@@ -847,24 +752,18 @@ h2 {
 .period-card--active {
   border-color: color-mix(in srgb, var(--company-color) 30%, var(--border));
 }
-/*
- * Two rows: the name row also holds the company mark and the Live chip, so
- * both center on the name's line box rather than on the whole header.
- */
+/* Two rows: the mark shares the name row so it centers on the name's line box. */
 .period-card-header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   grid-template-areas:
-    "mark name chip"
-    ". cadence .";
+    "mark name"
+    ". cadence";
   column-gap: 12px;
   align-items: center;
 }
 .period-card-header > .company-mark {
   grid-area: mark;
-}
-.period-card-header > .live-chip {
-  grid-area: chip;
 }
 .period-card h3 {
   grid-area: name;
@@ -882,29 +781,6 @@ h2 {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.live-chip {
-  --chip: var(--company-color, var(--primary));
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 9px 0 8px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--chip) 40%, transparent);
-  background: color-mix(in srgb, var(--chip) 10%, transparent);
-  color: var(--chip);
-  font-size: 0.72rem;
-  font-weight: 650;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  flex: 0 0 auto;
-}
-.live-chip i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--chip);
 }
 .period-total strong {
   display: flex;
@@ -1260,15 +1136,10 @@ h2 {
     padding: 22px;
   }
   .hero-side {
-    flex-direction: row;
-    align-items: center;
-    min-width: 0;
+    justify-content: space-between;
   }
   .hero-timer {
     text-align: left;
-  }
-  .start-list {
-    max-width: none;
   }
   .today {
     grid-template-columns: 1fr;

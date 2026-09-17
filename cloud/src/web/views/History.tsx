@@ -384,10 +384,7 @@ export function History({ data }: { data: TimeClockData }) {
                       {session.endedAt ? (
                         formatTime(session.endedAt)
                       ) : (
-                        <span className="live-chip">
-                          <i aria-hidden="true" />
-                          Live
-                        </span>
+                        <span className="text-muted-foreground">now</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right tabular font-semibold">
@@ -510,12 +507,6 @@ function PeriodCard({
         <span className="period-cadence">
           Open since {formatDateTime(start)}
         </span>
-        {isActive && (
-          <span className="live-chip">
-            <i aria-hidden="true" />
-            Live
-          </span>
-        )}
       </header>
 
       <div className="period-total">

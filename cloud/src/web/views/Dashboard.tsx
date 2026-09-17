@@ -1,6 +1,12 @@
 import { useMemo, useState } from "react";
-import { ArrowRightIcon, PlayIcon, SquareIcon } from "lucide-react";
+import { ArrowRightIcon, ChevronDownIcon } from "lucide-react";
 import { Button } from "@/web/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/web/components/ui/dropdown-menu";
 import { Skeleton } from "@/web/components/ui/skeleton";
 import type { Company, Session } from "../api";
 import { CompanyMark, companyStyle } from "../components/CompanyMark";
@@ -99,47 +105,18 @@ export function Dashboard({ data }: { data: TimeClockData }) {
         style={active ? companyStyle(active.company) : undefined}
       >
         <div className="hero-main">
+          <div className="hero-label">
+            {active
+              ? `Clocked in since ${formatTime(active.startedAt)}`
+              : formatWeekday(now)}
+          </div>
           {active ? (
-            <>
-              <div className="hero-label">
-                <span className="live-chip">
-                  <i aria-hidden="true" />
-                  Live
-                </span>
-                Clocked in since {formatTime(active.startedAt)}
-              </div>
-              <div className="hero-company">
-                <CompanyMark company={active.company} size="xl" />
-                <h1>{active.company.name}</h1>
-              </div>
-            </>
+            <div className="hero-company">
+              <CompanyMark company={active.company} size="xl" />
+              <h1>{active.company.name}</h1>
+            </div>
           ) : (
-            <>
-              <div className="hero-label">{formatWeekday(now)}</div>
-              <h1>Clocked out</h1>
-              {loading ? (
-                <Skeleton className="mt-5 h-24" />
-              ) : (
-                <ul className="start-list">
-                  {activeCompanies.map((company) => (
-                    <li key={company.id} style={companyStyle(company)}>
-                      <button
-                        type="button"
-                        className="start-row"
-                        onClick={() => void start(company)}
-                      >
-                        <CompanyMark company={company} size="md" />
-                        <span>{company.name}</span>
-                        <em>
-                          <PlayIcon />
-                          Start
-                        </em>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
+            <h1>Clocked out</h1>
           )}
         </div>
         <div className="hero-side">
@@ -150,20 +127,33 @@ export function Dashboard({ data }: { data: TimeClockData }) {
                 ? formatClock(activeSeconds)
                 : formatDuration(todaySeconds)}
             </strong>
-            {active && (
-              <em className="tabular">{formatDuration(todaySeconds)} today</em>
-            )}
           </div>
-          {active && (
-            <Button
-              size="lg"
-              variant="outline"
-              className="clock-out"
-              onClick={() => void stop()}
-            >
-              <SquareIcon className="fill-current" />
+          {loading ? (
+            <Skeleton className="h-9 w-28" />
+          ) : active ? (
+            <Button variant="outline" onClick={() => void stop()}>
               Clock out
             </Button>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button disabled={!activeCompanies.length}>
+                  Start
+                  <ChevronDownIcon />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {activeCompanies.map((company) => (
+                  <DropdownMenuItem
+                    key={company.id}
+                    onSelect={() => void start(company)}
+                  >
+                    <CompanyMark company={company} size="sm" />
+                    {company.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </section>
