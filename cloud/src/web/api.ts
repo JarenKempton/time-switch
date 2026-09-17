@@ -1,12 +1,8 @@
-import type { PayPeriodCadence } from "../db/schema";
-
 export interface Company {
   id: string;
   name: string;
   logoUrl: string | null;
   color: string | null;
-  payPeriodCadence: PayPeriodCadence;
-  payPeriodAnchorDate: string | null;
   archived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -47,7 +43,6 @@ export interface Retrieval {
   companyId: string;
   periodStart: string;
   periodEnd: string;
-  nextPeriodEnd: string;
   totalSeconds: number;
   note: string | null;
   createdAt: string;
@@ -56,11 +51,16 @@ export interface Retrieval {
 }
 
 export interface RetrievalInput {
-  periodStart: string;
   periodEnd: string;
-  nextPeriodEnd: string;
   note?: string | null;
-  reanchorDate?: string;
+}
+
+/** The pay period currently accumulating hours for a company. */
+export interface OpenPeriod {
+  companyId: string;
+  start: string;
+  totalSeconds: number;
+  sessionCount: number;
 }
 
 export interface Device {
@@ -162,13 +162,14 @@ export const timeClock = {
       body: JSON.stringify({ companyId, startedAt: new Date().toISOString() }),
     }),
   stopSession: (id: string) =>
-    api<{ session: Session; durationSeconds: number }>(
-      `/api/v1/sessions/${id}/stop`,
-      {
-        method: "POST",
-        body: JSON.stringify({ endedAt: new Date().toISOString() }),
-      },
-    ),
+    api<{
+      session: Session | null;
+      durationSeconds: number;
+      discarded: boolean;
+    }>(`/api/v1/sessions/${id}/stop`, {
+      method: "POST",
+      body: JSON.stringify({ endedAt: new Date().toISOString() }),
+    }),
   updateSession: (id: string, body: unknown) =>
     api<Session>(`/api/v1/sessions/${id}`, {
       method: "PATCH",
@@ -185,6 +186,8 @@ export const timeClock = {
     api<CompanyHours>(
       `/api/v1/companies/${companyId}/hours${query({ from: from.toISOString(), to: to.toISOString() })}`,
     ),
+  openPeriod: (companyId: string) =>
+    api<OpenPeriod>(`/api/v1/companies/${companyId}/period`),
   retrievals: (companyId?: string) =>
     api<Retrieval[]>(`/api/v1/retrievals${query({ companyId })}`),
   createRetrieval: (companyId: string, body: RetrievalInput) =>

@@ -21,26 +21,9 @@ import {
 } from "@/web/components/ui/dialog";
 import { Input } from "@/web/components/ui/input";
 import { Label } from "@/web/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/web/components/ui/select";
 import { timeClock, type Company } from "../api";
-import {
-  cadenceLabels,
-  describeCadence,
-  toDateInput,
-  upcomingPeriods,
-} from "../lib/pay-period";
-import { formatRange } from "../format";
 import { DEFAULT_COMPANY_COLOR } from "./CompanyMark";
 import { LogoPicker } from "./LogoPicker";
-import type { PayPeriodCadence } from "../../db/schema";
-
-const CADENCES = Object.keys(cadenceLabels) as PayPeriodCadence[];
 
 export function CompanyDialog({
   open,
@@ -57,12 +40,6 @@ export function CompanyDialog({
 }) {
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [cadence, setCadence] = useState<PayPeriodCadence>(
-    company?.payPeriodCadence ?? "biweekly",
-  );
-  const [anchor, setAnchor] = useState(
-    company?.payPeriodAnchorDate ?? toDateInput(new Date()),
-  );
   const [logoUrl, setLogoUrl] = useState<string | null>(
     company?.logoUrl ?? null,
   );
@@ -71,15 +48,8 @@ export function CompanyDialog({
     if (!open) return;
     setSaving(false);
     setCopied(false);
-    setCadence(company?.payPeriodCadence ?? "biweekly");
-    setAnchor(company?.payPeriodAnchorDate ?? toDateInput(new Date()));
     setLogoUrl(company?.logoUrl ?? null);
   }, [company, open]);
-
-  const previewCompany = /^\d{4}-\d{2}-\d{2}$/.test(anchor)
-    ? { payPeriodCadence: cadence, payPeriodAnchorDate: anchor, createdAt: "" }
-    : null;
-  const preview = previewCompany ? upcomingPeriods(previewCompany) : null;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -90,8 +60,6 @@ export function CompanyDialog({
         name: form.get("name"),
         logoUrl,
         color: form.get("color"),
-        payPeriodCadence: cadence,
-        payPeriodAnchorDate: anchor,
       };
       if (company) await timeClock.updateCompany(company.id, body);
       else await timeClock.createCompany(body);
@@ -160,73 +128,6 @@ export function CompanyDialog({
             </div>
           </div>
           <LogoPicker value={logoUrl} onChange={setLogoUrl} onError={onError} />
-
-          <fieldset className="rounded-lg border border-border p-4">
-            <legend className="px-1 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-              Pay period
-            </legend>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="field-stack">
-                <Label htmlFor="company-cadence">Cadence</Label>
-                <Select
-                  value={cadence}
-                  onValueChange={(value) =>
-                    setCadence(value as PayPeriodCadence)
-                  }
-                >
-                  <SelectTrigger id="company-cadence" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CADENCES.map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {cadenceLabels[value]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="field-stack">
-                <Label htmlFor="company-anchor">
-                  {cadence === "semimonthly"
-                    ? "Anchor (1st and 16th)"
-                    : "A period start date"}
-                </Label>
-                <Input
-                  id="company-anchor"
-                  type="date"
-                  value={anchor}
-                  onChange={(event) => setAnchor(event.target.value)}
-                  disabled={cadence === "semimonthly"}
-                  required
-                />
-              </div>
-            </div>
-            {previewCompany && preview ? (
-              <div className="schedule-preview">
-                <strong>{describeCadence(previewCompany)}</strong>
-                <ol>
-                  {preview.map((window, index) => (
-                    <li key={window.start.getTime()}>
-                      <span>
-                        {index === 0
-                          ? "Current"
-                          : index === 1
-                            ? "Next"
-                            : "Then"}
-                      </span>
-                      {formatRange(window.start, window.end)}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            ) : (
-              <p className="mt-3 text-sm text-muted-foreground">
-                Pick any date a period started on; the schedule repeats from
-                there.
-              </p>
-            )}
-          </fieldset>
 
           {company && (
             <div className="field-stack">

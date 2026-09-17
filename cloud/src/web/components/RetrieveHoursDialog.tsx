@@ -13,29 +13,22 @@ import { Input } from "@/web/components/ui/input";
 import { Label } from "@/web/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/web/components/ui/radio-group";
 import { Textarea } from "@/web/components/ui/textarea";
-import {
-  dateOnly,
-  nextPeriodOptions,
-  payPeriodWindow,
-  toDateInput,
-  type NextPeriodChoice,
-} from "../lib/pay-period";
 import { timeClock, type CompanyHours } from "../api";
-import {
-  formatDate,
-  formatDateTime,
-  formatDuration,
-  formatHours,
-} from "../format";
+import { formatDateTime, formatDuration, formatHours } from "../format";
 import type { CompanyPeriod } from "../use-periods";
 import { CompanyMark } from "./CompanyMark";
 
-type EndChoice = "now" | "period_start";
+type EndChoice = "now" | "custom";
+
+function toLocalInput(value: Date): string {
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+}
 
 /**
- * Closes out a company's open hours. The user picks how far to retrieve and
- * when the following period should end; the server records both and computes
- * the authoritative total.
+ * Closes a company's open pay period. The period always starts where the
+ * previous one ended; the user only picks where this one stops, and the
+ * server records the authoritative total.
  */
 export function RetrieveHoursDialog({
   entry,
@@ -50,50 +43,43 @@ export function RetrieveHoursDialog({
 }) {
   const open = entry !== null;
   const [endChoice, setEndChoice] = useState<EndChoice>("now");
-  const [nextChoice, setNextChoice] =
-    useState<NextPeriodChoice>("next_boundary");
   const [customEnd, setCustomEnd] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<CompanyHours | null>(null);
 
   const company = entry?.company ?? null;
-  const period = entry?.period ?? null;
-  const hasBacklog = Boolean(period?.unretrievedSince);
+  const periodStart = entry?.start ?? null;
+  const now = useMemo(() => new Date(), [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!open) return;
     setEndChoice("now");
-    setNextChoice("next_boundary");
-    setCustomEnd("");
+    setCustomEnd(toLocalInput(now));
     setNote("");
     setSaving(false);
     setPreview(null);
-  }, [open, entry?.company.id]);
+  }, [open, entry?.company.id, now]);
 
-  const periodStart = useMemo(
-    () => (period ? (period.unretrievedSince ?? period.start) : new Date()),
-    [period],
-  );
-  const now = useMemo(() => new Date(), [open]); // eslint-disable-line react-hooks/exhaustive-deps
-  const periodEnd = endChoice === "period_start" && period ? period.start : now;
-
-  const options = useMemo(
-    () => (company ? nextPeriodOptions(company, now) : []),
-    [company, now],
-  );
-  const selected = options.find((option) => option.key === nextChoice);
-
-  const nextPeriodEnd: Date | null = (() => {
-    if (!company || !period) return null;
-    if (endChoice === "period_start") return period.end;
-    if (nextChoice === "custom")
-      return /^\d{4}-\d{2}-\d{2}$/.test(customEnd) ? dateOnly(customEnd) : null;
-    return selected?.end ?? null;
+  const periodEnd: Date | null = (() => {
+    if (endChoice === "now") return now;
+    const parsed = new Date(customEnd);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
   })();
+  const endProblem =
+    !periodEnd || !periodStart
+      ? null
+      : periodEnd > now
+        ? "A pay period cannot end in the future."
+        : periodEnd <= periodStart
+          ? "The end has to come after the period start."
+          : null;
 
   useEffect(() => {
-    if (!company) return;
+    if (!company || !periodStart || !periodEnd || endProblem) {
+      setPreview(null);
+      return;
+    }
     let cancelled = false;
     void timeClock
       .companyHours(company.id, periodStart, periodEnd)
@@ -104,24 +90,16 @@ export function RetrieveHoursDialog({
     return () => {
       cancelled = true;
     };
-  }, [company, periodStart, periodEnd]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [company, periodStart?.getTime(), periodEnd?.getTime(), endProblem]);
 
   async function submit() {
-    if (!company || !nextPeriodEnd) return;
-    if (nextPeriodEnd <= periodEnd) {
-      onError("The next period has to end after this retrieval.");
-      return;
-    }
+    if (!company || !periodEnd || endProblem) return;
     setSaving(true);
     try {
       await timeClock.createRetrieval(company.id, {
-        periodStart: periodStart.toISOString(),
         periodEnd: periodEnd.toISOString(),
-        nextPeriodEnd: nextPeriodEnd.toISOString(),
         note: note.trim() || null,
-        ...(endChoice === "now" && selected?.reanchor
-          ? { reanchorDate: toDateInput(now) }
-          : {}),
       });
       await onSaved();
     } catch (cause) {
@@ -132,46 +110,46 @@ export function RetrieveHoursDialog({
     }
   }
 
-  const exportUrl = company
-    ? timeClock.exportUrl({
-        companyId: company.id,
-        from: periodStart.toISOString(),
-        to: periodEnd.toISOString(),
-      })
-    : "#";
-
-  const regularAfterBacklog =
-    company && period && endChoice === "period_start"
-      ? payPeriodWindow(company, period.start)
-      : null;
+  const exportUrl =
+    company && periodStart && periodEnd
+      ? timeClock.exportUrl({
+          companyId: company.id,
+          from: periodStart.toISOString(),
+          to: periodEnd.toISOString(),
+        })
+      : "#";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
-        {company && period && (
+      <DialogContent className="sm:max-w-lg">
+        {company && periodStart && (
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <CompanyMark company={company} size="sm" />
-                Get hours for {company.name}
+                Close pay period for {company.name}
               </DialogTitle>
               <DialogDescription>
-                Records what you are invoicing and sets when the next period
-                ends.
+                Records the hours since the last close. The next period starts
+                right where this one ends.
               </DialogDescription>
             </DialogHeader>
 
             <div className="retrieve-summary">
               <div>
-                <span className="eyebrow">Retrieving</span>
+                <span className="eyebrow">Period</span>
                 <strong>
-                  {formatDate(periodStart, true)} →{" "}
-                  {endChoice === "now" ? "now" : formatDate(periodEnd, true)}
+                  {formatDateTime(periodStart)} →{" "}
+                  {endChoice === "now" || !periodEnd
+                    ? "now"
+                    : formatDateTime(periodEnd)}
                 </strong>
                 <span className="text-sm text-muted-foreground">
-                  {preview
-                    ? `${preview.sessionCount} session${preview.sessionCount === 1 ? "" : "s"}`
-                    : "Counting…"}
+                  {endProblem
+                    ? endProblem
+                    : preview
+                      ? `${preview.sessionCount} session${preview.sessionCount === 1 ? "" : "s"}`
+                      : "Counting…"}
                 </span>
               </div>
               <div className="text-right">
@@ -186,75 +164,41 @@ export function RetrieveHoursDialog({
               </div>
             </div>
 
-            {hasBacklog && (
-              <div className="field-stack">
-                <Label>How far to retrieve</Label>
-                <RadioGroup
-                  value={endChoice}
-                  onValueChange={(value) => setEndChoice(value as EndChoice)}
-                  className="gap-2"
-                >
-                  <label className="choice">
-                    <RadioGroupItem value="period_start" />
-                    <strong>
-                      Through {formatDate(period.start, true)} only
-                    </strong>
-                    <small>
-                      Close the previous period. The current one keeps running
-                      as scheduled.
-                    </small>
-                  </label>
-                  <label className="choice">
-                    <RadioGroupItem value="now" />
-                    <strong>Everything up to now</strong>
-                    <small>Include the current period so far.</small>
-                  </label>
-                </RadioGroup>
-              </div>
-            )}
-
-            {endChoice === "now" ? (
-              <div className="field-stack">
-                <Label>Next period</Label>
-                <RadioGroup
-                  value={nextChoice}
-                  onValueChange={(value) =>
-                    setNextChoice(value as NextPeriodChoice)
-                  }
-                  className="gap-2"
-                >
-                  {options.map((option) => (
-                    <label className="choice" key={option.key}>
-                      <RadioGroupItem value={option.key} />
-                      <strong>{option.label}</strong>
-                      <small>
-                        {option.end
-                          ? `Ends ${formatDate(new Date(option.end.getTime() - 1), true)}. `
-                          : ""}
-                        {option.detail}
-                      </small>
-                    </label>
-                  ))}
-                </RadioGroup>
-                {nextChoice === "custom" && (
-                  <Input
-                    type="date"
-                    className="mt-1 sm:w-56"
-                    value={customEnd}
-                    min={toDateInput(new Date(now.getTime() + 86_400_000))}
-                    onChange={(event) => setCustomEnd(event.target.value)}
-                    aria-label="Next period end date"
-                  />
-                )}
-              </div>
-            ) : (
-              regularAfterBacklog && (
-                <p className="text-sm text-muted-foreground">
-                  The current period stays {formatDate(period.start, true)} –{" "}
-                  {formatDate(new Date(period.end.getTime() - 1), true)}.
-                </p>
-              )
-            )}
+            <div className="field-stack">
+              <Label>Close the period at</Label>
+              <RadioGroup
+                value={endChoice}
+                onValueChange={(value) => setEndChoice(value as EndChoice)}
+                className="gap-2"
+              >
+                <label className="choice">
+                  <RadioGroupItem value="now" />
+                  <strong>Right now</strong>
+                  <small>
+                    Everything up to {formatDateTime(now)}. Anything after
+                    counts toward the next period.
+                  </small>
+                </label>
+                <label className="choice">
+                  <RadioGroupItem value="custom" />
+                  <strong>A specific time</strong>
+                  <small>
+                    Use this when the cutoff already passed, e.g. midnight last
+                    night.
+                  </small>
+                </label>
+              </RadioGroup>
+              {endChoice === "custom" && (
+                <Input
+                  type="datetime-local"
+                  className="mt-1 sm:w-64"
+                  value={customEnd}
+                  max={toLocalInput(now)}
+                  onChange={(event) => setCustomEnd(event.target.value)}
+                  aria-label="Period end"
+                />
+              )}
+            </div>
 
             <div className="field-stack">
               <Label htmlFor="retrieve-note">
@@ -285,17 +229,13 @@ export function RetrieveHoursDialog({
               </Button>
               <Button
                 onClick={() => void submit()}
-                disabled={saving || !nextPeriodEnd || !preview}
+                disabled={saving || Boolean(endProblem) || !preview}
               >
                 {saving
                   ? "Recording…"
-                  : `Record ${preview ? formatHours(preview.totalSeconds) : ""} h`}
+                  : `Close at ${preview ? formatHours(preview.totalSeconds) : ""} h`}
               </Button>
             </DialogFooter>
-            <p className="text-xs text-muted-foreground">
-              Retrieval time is {formatDateTime(now)}. Sessions after this
-              moment count toward the next period.
-            </p>
           </>
         )}
       </DialogContent>

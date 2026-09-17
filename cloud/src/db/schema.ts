@@ -6,14 +6,6 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-export const payPeriodCadences = [
-  "weekly",
-  "biweekly",
-  "semimonthly",
-  "monthly",
-] as const;
-export type PayPeriodCadence = (typeof payPeriodCadences)[number];
-
 export const companies = sqliteTable(
   "companies",
   {
@@ -21,10 +13,6 @@ export const companies = sqliteTable(
     name: text("name").notNull(),
     logoUrl: text("logo_url"),
     color: text("color"),
-    payPeriodCadence: text("pay_period_cadence", { enum: payPeriodCadences })
-      .notNull()
-      .default("biweekly"),
-    payPeriodAnchorDate: text("pay_period_anchor_date"),
     archived: integer("archived", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
@@ -79,10 +67,9 @@ export type Session = typeof sessions.$inferSelect;
 export type Device = typeof devices.$inferSelect;
 
 /**
- * A recorded hours retrieval. Each row closes out a reporting window for one
- * company and states when the following window is scheduled to end. The most
- * recent row per company therefore defines the "current" pay period until it
- * lapses, after which the company's regular cadence resumes.
+ * A closed-out pay period. Each row covers [periodStart, periodEnd) for one
+ * company; the next period opens at periodEnd and stays open until the next
+ * row is recorded. There is no schedule: periods are closed by hand.
  */
 export const hourRetrievals = sqliteTable(
   "hour_retrievals",
@@ -93,9 +80,6 @@ export const hourRetrievals = sqliteTable(
       .references(() => companies.id),
     periodStart: integer("period_start", { mode: "timestamp_ms" }).notNull(),
     periodEnd: integer("period_end", { mode: "timestamp_ms" }).notNull(),
-    nextPeriodEnd: integer("next_period_end", {
-      mode: "timestamp_ms",
-    }).notNull(),
     totalSeconds: integer("total_seconds").notNull(),
     note: text("note"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),

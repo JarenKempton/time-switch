@@ -7,7 +7,6 @@ import {
 import { Button } from "@/web/components/ui/button";
 import { formatClock } from "./format";
 import { navigate, useRoute, type Route } from "./router";
-import { usePeriods } from "./use-periods";
 import { useTimeClock } from "./use-time-clock";
 import { Dashboard } from "./views/Dashboard";
 import { Devices } from "./views/Devices";
@@ -24,13 +23,6 @@ const NAV: Array<{ route: Route; label: string }> = [
 export function App() {
   const data = useTimeClock();
   const route = useRoute();
-  const periods = usePeriods(
-    data.activeCompanies,
-    data.latestRetrievalByCompany,
-    data.status,
-    data.now,
-    data.sessions,
-  );
   const active = data.status.activeSession;
 
   return (
@@ -88,7 +80,7 @@ export function App() {
             </AlertAction>
           </Alert>
         )}
-        {route === "dashboard" && <Dashboard data={data} periods={periods} />}
+        {route === "dashboard" && <Dashboard data={data} />}
         {route === "history" && <History data={data} />}
         {route === "devices" && <Devices data={data} />}
         {route === "settings" && <Settings data={data} />}

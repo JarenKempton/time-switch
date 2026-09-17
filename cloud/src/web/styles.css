@@ -210,6 +210,9 @@ h2 {
 .section--first {
   margin-top: 8px;
 }
+.section--tight {
+  margin-top: 14px;
+}
 .section-heading {
   display: flex;
   align-items: flex-end;
@@ -494,6 +497,267 @@ h2 {
   font-weight: 500;
   letter-spacing: -0.04em;
   color: var(--foreground);
+}
+.hero-timer em {
+  display: block;
+  margin-top: 8px;
+  font-style: normal;
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+.hero--active::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    120% 90% at 100% 0%,
+    color-mix(in srgb, var(--company-color) 16%, transparent),
+    transparent 60%
+  );
+}
+.hero > * {
+  position: relative;
+}
+
+/* ---------- Today ---------- */
+
+.today {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 24px;
+  align-items: start;
+}
+.today-side {
+  position: sticky;
+  top: 76px;
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+}
+.today-total strong {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 2.4rem;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+.today-total strong small {
+  font-size: 0.45em;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  letter-spacing: 0;
+}
+.today-total-meta {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: var(--muted-foreground);
+}
+.split-bar {
+  display: flex;
+  gap: 3px;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.split-bar i {
+  --company-color: var(--primary);
+  display: block;
+  flex: 1 1 0;
+  min-width: 4px;
+  background: var(--company-color);
+  border-radius: 999px;
+}
+.split-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.split-list li {
+  --company-color: var(--primary);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.split-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.split-share {
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.split-list strong {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.split-list strong small {
+  font-size: 0.7em;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+/* ---------- Timeline ---------- */
+
+.timeline {
+  position: relative;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  padding: 12px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  box-sizing: content-box;
+  overflow: hidden;
+}
+.timeline-hours {
+  position: relative;
+}
+.timeline-hours span {
+  position: absolute;
+  right: 10px;
+  transform: translateY(-50%);
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.timeline-track {
+  position: relative;
+  margin-right: 14px;
+}
+.timeline-rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--border);
+  opacity: 0.7;
+}
+.timeline-block {
+  --company-color: var(--primary);
+  position: absolute;
+  left: 10px;
+  right: 0;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "name duration"
+    "time time"
+    "note note";
+  align-content: start;
+  gap: 1px 10px;
+  padding: 6px 10px 6px 12px;
+  border: 0;
+  border-left: 3px solid var(--company-color);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--company-color) 16%, var(--card));
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
+}
+.timeline-block:hover {
+  background: color-mix(in srgb, var(--company-color) 26%, var(--card));
+  box-shadow: 0 0 0 1px
+    color-mix(in srgb, var(--company-color) 45%, transparent);
+}
+.timeline-block strong {
+  grid-area: name;
+  font-size: 0.88rem;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.timeline-block span {
+  grid-area: time;
+  font-size: 0.76rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.timeline-block em {
+  grid-area: duration;
+  font-style: normal;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--company-color) 80%, white);
+}
+.timeline-block small {
+  grid-area: note;
+  margin-top: 2px;
+  font-size: 0.74rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Short blocks collapse to a single line: name and duration only. */
+.timeline-block--compact {
+  grid-template-areas: "name duration";
+  align-content: center;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.timeline-block--compact span,
+.timeline-block--compact small {
+  display: none;
+}
+.timeline-block--live {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 8px,
+    color-mix(in srgb, var(--company-color) 8%, transparent) 8px 16px
+  );
+}
+.timeline-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 2px solid var(--destructive);
+  pointer-events: none;
+  z-index: 2;
+}
+.timeline-now::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: -5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--destructive);
+}
+.timeline-now span {
+  position: absolute;
+  right: 0;
+  top: -9px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--destructive);
+  color: var(--background);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 /* ---------- Period cards ---------- */
@@ -931,6 +1195,12 @@ h2 {
   }
   .hero-timer {
     text-align: left;
+  }
+  .today {
+    grid-template-columns: 1fr;
+  }
+  .today-side {
+    position: static;
   }
   .filters {
     grid-template-columns: 1fr;

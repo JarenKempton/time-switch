@@ -279,41 +279,6 @@ describe("time clock API", () => {
     expect(replacement.body.data.device.id).not.toBe(first.body.data.device.id);
   });
 
-  it("stores per-company pay-period settings", async () => {
-    const created = await request<{
-      data: {
-        id: string;
-        payPeriodCadence: string;
-        payPeriodAnchorDate: string;
-      };
-    }>("/api/v1/companies", {
-      method: "POST",
-      body: JSON.stringify({
-        name: "Payroll Test",
-        payPeriodCadence: "weekly",
-        payPeriodAnchorDate: "2026-09-07",
-      }),
-    });
-    expect(created.body.data).toMatchObject({
-      payPeriodCadence: "weekly",
-      payPeriodAnchorDate: "2026-09-07",
-    });
-
-    const updated = await request<{
-      data: { payPeriodCadence: string; payPeriodAnchorDate: string };
-    }>(`/api/v1/companies/${created.body.data.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        payPeriodCadence: "monthly",
-        payPeriodAnchorDate: "2026-09-15",
-      }),
-    });
-    expect(updated.body.data).toMatchObject({
-      payPeriodCadence: "monthly",
-      payPeriodAnchorDate: "2026-09-15",
-    });
-  });
-
   it("pushes an initial snapshot and subsequent changes over WebSocket", async () => {
     const response = await dashboardFetch("/api/v1/live", {
       headers: { upgrade: "websocket" },
@@ -398,6 +363,60 @@ describe("time clock API", () => {
     );
     expect(repeatedStop.status).toBe(200);
     expect(repeatedStop.body.data.durationSeconds).toBe(15_300);
+  });
+
+  it("discards a session stopped in under a minute", async () => {
+    const company = await createCompany();
+    const companyId = company.body.data.id;
+    const sessionId = "018f47a0-7b8c-4c5d-9e6f-0123456789ac";
+    await request("/api/v1/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        id: sessionId,
+        companyId,
+        startedAt: "2026-09-12T15:30:00.000Z",
+      }),
+    });
+
+    const stopped = await request<{
+      data: { durationSeconds: number; discarded: boolean };
+    }>(`/api/v1/sessions/${sessionId}/stop`, {
+      method: "POST",
+      body: JSON.stringify({ endedAt: "2026-09-12T15:30:40.000Z" }),
+    });
+    expect(stopped.status).toBe(200);
+    expect(stopped.body.data).toMatchObject({
+      durationSeconds: 40,
+      discarded: true,
+    });
+
+    const listed = await request<{ data: Array<{ id: string }> }>(
+      "/api/v1/sessions",
+    );
+    expect(listed.body.data).toHaveLength(0);
+    const status = await request<{ data: { activeSession: unknown } }>(
+      "/api/v1/status",
+    );
+    expect(status.body.data.activeSession).toBeNull();
+
+    // A manual edit cannot produce a sub-minute session either.
+    await request("/api/v1/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        id: sessionId,
+        companyId,
+        startedAt: "2026-09-12T15:30:00.000Z",
+      }),
+    });
+    const edited = await request<{ error: { code: string } }>(
+      `/api/v1/sessions/${sessionId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ endedAt: "2026-09-12T15:30:30.000Z" }),
+      },
+    );
+    expect(edited.status).toBe(422);
+    expect(edited.body.error.code).toBe("session_too_short");
   });
 
   it("edits and deletes a session", async () => {
@@ -533,28 +552,38 @@ describe("hour retrievals", () => {
     });
   });
 
-  it("records a retrieval with a server-computed total and can re-anchor", async () => {
+  it("closes the open period and opens the next one where it ended", async () => {
     const companyId = await seedCompanyWithSession();
+    const open = await request<{
+      data: { start: string; totalSeconds: number; sessionCount: number };
+    }>(`/api/v1/companies/${companyId}/period`);
+    expect(open.status).toBe(200);
+    expect(open.body.data).toMatchObject({
+      start: "2026-09-10T09:00:00.000Z",
+      totalSeconds: 10_800,
+      sessionCount: 1,
+    });
+
     const created = await request<{
       data: {
         id: string;
+        periodStart: string;
+        periodEnd: string;
         totalSeconds: number;
-        nextPeriodEnd: string;
-        company: { payPeriodAnchorDate: string };
       };
     }>(`/api/v1/companies/${companyId}/retrievals`, {
       method: "POST",
       body: JSON.stringify({
-        periodStart: "2026-09-01T00:00:00.000Z",
         periodEnd: "2026-09-12T15:00:00.000Z",
-        nextPeriodEnd: "2026-09-26T00:00:00.000Z",
         note: "Invoice 42",
-        reanchorDate: "2026-09-12",
       }),
     });
     expect(created.status).toBe(201);
-    expect(created.body.data.totalSeconds).toBe(10_800);
-    expect(created.body.data.company.payPeriodAnchorDate).toBe("2026-09-12");
+    expect(created.body.data).toMatchObject({
+      periodStart: "2026-09-10T09:00:00.000Z",
+      periodEnd: "2026-09-12T15:00:00.000Z",
+      totalSeconds: 10_800,
+    });
 
     const list = await request<{ data: Array<{ id: string; note: string }> }>(
       `/api/v1/retrievals?companyId=${companyId}`,
@@ -562,15 +591,19 @@ describe("hour retrievals", () => {
     expect(list.body.data).toHaveLength(1);
     expect(list.body.data[0].note).toBe("Invoice 42");
 
+    const next = await request<{
+      data: { start: string; totalSeconds: number };
+    }>(`/api/v1/companies/${companyId}/period`);
+    expect(next.body.data).toMatchObject({
+      start: "2026-09-12T15:00:00.000Z",
+      totalSeconds: 0,
+    });
+
     const overlap = await request<{ error: { code: string } }>(
       `/api/v1/companies/${companyId}/retrievals`,
       {
         method: "POST",
-        body: JSON.stringify({
-          periodStart: "2026-09-10T00:00:00.000Z",
-          periodEnd: "2026-09-13T00:00:00.000Z",
-          nextPeriodEnd: "2026-09-26T00:00:00.000Z",
-        }),
+        body: JSON.stringify({ periodEnd: "2026-09-11T00:00:00.000Z" }),
       },
     );
     expect(overlap.status).toBe(409);
@@ -589,19 +622,18 @@ describe("hour retrievals", () => {
     expect(after.body.data).toHaveLength(0);
   });
 
-  it("rejects a retrieval whose next period ends before it does", async () => {
+  it("rejects a retrieval that ends in the future", async () => {
     const companyId = await seedCompanyWithSession();
     const bad = await request<{ error: { code: string } }>(
       `/api/v1/companies/${companyId}/retrievals`,
       {
         method: "POST",
         body: JSON.stringify({
-          periodStart: "2026-09-01T00:00:00.000Z",
-          periodEnd: "2026-09-12T00:00:00.000Z",
-          nextPeriodEnd: "2026-09-11T00:00:00.000Z",
+          periodEnd: new Date(Date.now() + 86_400_000).toISOString(),
         }),
       },
     );
     expect(bad.status).toBe(422);
+    expect(bad.body.error.code).toBe("retrieval_in_future");
   });
 });

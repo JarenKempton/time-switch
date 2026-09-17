@@ -78,6 +78,8 @@ interface DeviceView {
 }
 
 const SETUP_TOKEN_LIFETIME_MS = 15 * 60 * 1000;
+/** Sessions shorter than this are treated as accidental and never kept. */
+export const MIN_SESSION_MS = 60 * 1000;
 
 function randomHex(byteLength: number): string {
   const bytes = crypto.getRandomValues(new Uint8Array(byteLength));
@@ -213,7 +215,9 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     this.app.all("/device/v1/sessions/:id/stop", (context) =>
       this.authenticatedDeviceRequest(context.req.raw, (request) =>
         request.method === "POST"
-          ? this.handleStop(request, context.req.param("id"))
+          ? this.handleStop(request, context.req.param("id"), {
+              tolerateMissing: true,
+            })
           : methodNotAllowed(["POST"]),
       ),
     );
@@ -471,8 +475,6 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
       name: input.name,
       logoUrl: input.logoUrl,
       color: input.color,
-      payPeriodCadence: input.payPeriodCadence,
-      payPeriodAnchorDate: input.payPeriodAnchorDate ?? localDate(now),
       archived: false,
       createdAt: now,
       updatedAt: now,
@@ -497,6 +499,10 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     if (subresource === "hours") {
       if (request.method !== "GET") return methodNotAllowed(["GET"]);
       return ok(this.getCompanyHours(id, url));
+    }
+    if (subresource === "period") {
+      if (request.method !== "GET") return methodNotAllowed(["GET"]);
+      return ok(this.getOpenPeriod(id));
     }
     if (subresource !== undefined)
       throw new ApiError(404, "not_found", "Route not found.");
@@ -527,12 +533,6 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.logoUrl !== undefined ? { logoUrl: input.logoUrl } : {}),
       ...(input.color !== undefined ? { color: input.color } : {}),
-      ...(input.payPeriodCadence !== undefined
-        ? { payPeriodCadence: input.payPeriodCadence }
-        : {}),
-      ...(input.payPeriodAnchorDate !== undefined
-        ? { payPeriodAnchorDate: input.payPeriodAnchorDate }
-        : {}),
       ...(input.archived !== undefined ? { archived: input.archived } : {}),
       updatedAt: new Date(),
     };
@@ -751,6 +751,13 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
         "Session end must be after its start.",
       );
     }
+    if (endedAt && endedAt.getTime() - startedAt.getTime() < MIN_SESSION_MS) {
+      throw new ApiError(
+        422,
+        "session_too_short",
+        "Sessions shorter than a minute are not kept.",
+      );
+    }
     if (!endedAt) {
       const another = this.db
         .select({ id: sessions.id })
@@ -798,7 +805,18 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     return ok({ id });
   }
 
-  private async handleStop(request: Request, id: string): Promise<Response> {
+  /**
+   * Stops a session. Anything shorter than a minute is an accidental flick of
+   * the switch, so the row is deleted instead of closed; the response still
+   * reports the would-be duration with `discarded: true`. Devices retry until
+   * they get a 2xx, so with `tolerateMissing` a stop for a session that no
+   * longer exists is acknowledged rather than rejected.
+   */
+  private async handleStop(
+    request: Request,
+    id: string,
+    options: { tolerateMissing?: boolean } = {},
+  ): Promise<Response> {
     if (request.method !== "POST") return methodNotAllowed(["POST"]);
     if (!zUuid(id))
       throw new ApiError(400, "invalid_id", "Session ID is invalid.");
@@ -810,8 +828,10 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
         .from(sessions)
         .where(eq(sessions.id, id))
         .get();
-      if (!current)
+      if (!current) {
+        if (options.tolerateMissing) return null;
         throw new ApiError(404, "session_not_found", "Session not found.");
+      }
       const company = tx
         .select()
         .from(companies)
@@ -825,7 +845,7 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
             "That session was already stopped at a different time.",
           );
         }
-        return { session: { ...current, company }, changed: false };
+        return { session: { ...current, company }, changed: false as const };
       }
       if (endedAt < current.startedAt) {
         throw new ApiError(
@@ -833,6 +853,13 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
           "invalid_session_range",
           "Session end must be after its start.",
         );
+      }
+      if (endedAt.getTime() - current.startedAt.getTime() < MIN_SESSION_MS) {
+        tx.delete(sessions).where(eq(sessions.id, id)).run();
+        return {
+          session: { ...current, endedAt, company },
+          changed: "discarded" as const,
+        };
       }
       tx.update(sessions)
         .set({ endedAt, updatedAt: new Date() })
@@ -843,9 +870,19 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
         .from(sessions)
         .where(eq(sessions.id, id))
         .get()!;
-      return { session: { ...updated, company }, changed: true };
+      return { session: { ...updated, company }, changed: true as const };
     });
-    if (result.changed) {
+    if (!result) {
+      return ok({
+        session: null,
+        durationSeconds: 0,
+        discarded: true,
+        status: this.getStatus(),
+      });
+    }
+    if (result.changed === "discarded") {
+      this.broadcast({ type: "session.deleted", status: this.getStatus() });
+    } else if (result.changed) {
       this.broadcast({
         type: "session.stopped",
         status: this.getStatus(),
@@ -859,6 +896,7 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
           result.session.startedAt.getTime()) /
           1000,
       ),
+      discarded: result.changed === "discarded",
       status: this.getStatus(),
     });
   }
@@ -986,6 +1024,25 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     };
   }
 
+  /** The pay period currently accumulating hours for a company. */
+  private getOpenPeriod(companyId: string) {
+    const company = this.db
+      .select()
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .get();
+    if (!company)
+      throw new ApiError(404, "company_not_found", "Company not found.");
+    const start = this.openPeriodStart(companyId);
+    const { totals, sessionCount } = this.totalsBetween(start, null, companyId);
+    return {
+      companyId,
+      start: start.toISOString(),
+      totalSeconds: Math.floor(totals.get(companyId) ?? 0),
+      sessionCount,
+    };
+  }
+
   private listRetrievals(
     url: URL,
   ): Array<HourRetrieval & { company: Company }> {
@@ -1005,19 +1062,25 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
   }
 
   /**
-   * Records that hours were retrieved for a company. The retrieval closes the
-   * window [periodStart, periodEnd) and schedules the next window to end at
-   * nextPeriodEnd. The total is computed server-side from the ledger so the
-   * stored figure always matches the sessions at retrieval time.
+   * Closes the open pay period for a company at `periodEnd`. The period starts
+   * where the previous retrieval ended (or at the company's first session), so
+   * consecutive retrievals always tile the timeline with no gaps or overlap.
+   * The total is computed server-side so the stored figure matches the ledger.
    */
   private async createRetrieval(
     request: Request,
     companyId: string,
   ): Promise<Response> {
     const input = createRetrievalSchema.parse(await readJson(request));
-    const periodStart = parseDate(input.periodStart);
     const periodEnd = parseDate(input.periodEnd);
-    const nextPeriodEnd = parseDate(input.nextPeriodEnd);
+    const now = new Date();
+    if (periodEnd > now) {
+      throw new ApiError(
+        422,
+        "retrieval_in_future",
+        "A pay period cannot end in the future.",
+      );
+    }
     const result = this.db.transaction((tx) => {
       const company = tx
         .select()
@@ -1026,13 +1089,8 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
         .get();
       if (!company)
         throw new ApiError(404, "company_not_found", "Company not found.");
-      const latest = tx
-        .select()
-        .from(hourRetrievals)
-        .where(eq(hourRetrievals.companyId, companyId))
-        .orderBy(desc(hourRetrievals.periodEnd))
-        .get();
-      if (latest && periodStart < latest.periodEnd) {
+      const periodStart = this.openPeriodStart(companyId);
+      if (periodEnd <= periodStart) {
         throw new ApiError(
           409,
           "retrieval_overlap",
@@ -1040,34 +1098,47 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
         );
       }
       const { totals } = this.totalsBetween(periodStart, periodEnd, companyId);
-      const now = new Date();
       const retrieval: HourRetrieval = {
         id: crypto.randomUUID(),
         companyId,
         periodStart,
         periodEnd,
-        nextPeriodEnd,
         totalSeconds: Math.floor(totals.get(companyId) ?? 0),
         note: input.note ?? null,
         createdAt: now,
         updatedAt: now,
       };
       tx.insert(hourRetrievals).values(retrieval).run();
-      let updatedCompany = company;
-      if (input.reanchorDate) {
-        tx.update(companies)
-          .set({ payPeriodAnchorDate: input.reanchorDate, updatedAt: now })
-          .where(eq(companies.id, companyId))
-          .run();
-        updatedCompany = {
-          ...company,
-          payPeriodAnchorDate: input.reanchorDate,
-        };
-      }
-      return { ...retrieval, company: updatedCompany };
+      return { ...retrieval, company };
     });
     this.broadcast({ type: "retrieval.changed", status: this.getStatus() });
     return ok(result, { status: 201 });
+  }
+
+  /**
+   * Where the company's open period begins: the end of its latest retrieval,
+   * else the start of its earliest session, else its creation time.
+   */
+  private openPeriodStart(companyId: string): Date {
+    const latest = this.db
+      .select({ periodEnd: hourRetrievals.periodEnd })
+      .from(hourRetrievals)
+      .where(eq(hourRetrievals.companyId, companyId))
+      .orderBy(desc(hourRetrievals.periodEnd))
+      .get();
+    if (latest) return latest.periodEnd;
+    const first = this.db
+      .select({ startedAt: sessions.startedAt })
+      .from(sessions)
+      .where(eq(sessions.companyId, companyId))
+      .orderBy(asc(sessions.startedAt))
+      .get();
+    if (first) return first.startedAt;
+    return this.db
+      .select({ createdAt: companies.createdAt })
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .get()!.createdAt;
   }
 
   private handleRetrieval(request: Request, id: string): Response {
@@ -1218,8 +1289,4 @@ function zUuid(value: string): boolean {
 function csvCell(value: string | number): string {
   const text = String(value);
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
-
-function localDate(value: Date): string {
-  return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`;
 }

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { payPeriodCadences } from "../db/schema";
 
 const nullableUrl = z
   .union([
@@ -27,16 +26,10 @@ const nullableColor = z
   .optional()
   .transform((value) => value || null);
 
-const dateOnly = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must use YYYY-MM-DD.");
-
 export const createCompanySchema = z.object({
   name: z.string().trim().min(1).max(100),
   logoUrl: nullableUrl,
   color: nullableColor,
-  payPeriodCadence: z.enum(payPeriodCadences).default("biweekly"),
-  payPeriodAnchorDate: dateOnly.optional(),
 });
 
 export const updateCompanySchema = z
@@ -44,8 +37,6 @@ export const updateCompanySchema = z
     name: z.string().trim().min(1).max(100).optional(),
     logoUrl: nullableUrl,
     color: nullableColor,
-    payPeriodCadence: z.enum(payPeriodCadences).optional(),
-    payPeriodAnchorDate: dateOnly.nullable().optional(),
     archived: z.boolean().optional(),
   })
   .refine(
@@ -97,20 +88,11 @@ export function parseDate(value: string): Date {
   return new Date(value);
 }
 
-export const createRetrievalSchema = z
-  .object({
-    periodStart: z.iso.datetime({ offset: true }),
-    periodEnd: z.iso.datetime({ offset: true }),
-    nextPeriodEnd: z.iso.datetime({ offset: true }),
-    note: z.string().trim().max(500).nullable().optional(),
-    /** When set, the company's cadence anchor moves to this date. */
-    reanchorDate: dateOnly.optional(),
-  })
-  .refine(
-    (value) => new Date(value.periodStart) < new Date(value.periodEnd),
-    "The period end must be after its start.",
-  )
-  .refine(
-    (value) => new Date(value.periodEnd) <= new Date(value.nextPeriodEnd),
-    "The next period must end after this one.",
-  );
+/**
+ * Closes the open pay period at `periodEnd`. The start is always the end of
+ * the previous retrieval (or the beginning of time), so only the end is sent.
+ */
+export const createRetrievalSchema = z.object({
+  periodEnd: z.iso.datetime({ offset: true }),
+  note: z.string().trim().max(500).nullable().optional(),
+});

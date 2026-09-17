@@ -21,7 +21,7 @@ export function formatClock(totalSeconds: number): string {
     .join(":");
 }
 
-export function formatDateTime(value: string | Date): string {
+export function formatDateTime(value: string | number | Date): string {
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
@@ -30,14 +30,17 @@ export function formatDateTime(value: string | Date): string {
   }).format(new Date(value));
 }
 
-export function formatTime(value: string | Date): string {
+export function formatTime(value: string | number | Date): string {
   return new Intl.DateTimeFormat(undefined, {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
 }
 
-export function formatDate(value: string | Date, withYear = false): string {
+export function formatDate(
+  value: string | number | Date,
+  withYear = false,
+): string {
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
@@ -45,7 +48,7 @@ export function formatDate(value: string | Date, withYear = false): string {
   }).format(new Date(value));
 }
 
-export function formatWeekday(value: string | Date): string {
+export function formatWeekday(value: string | number | Date): string {
   return new Intl.DateTimeFormat(undefined, {
     weekday: "short",
     month: "short",
@@ -57,7 +60,10 @@ export function formatWeekday(value: string | Date): string {
  * A period range for display. Ends are exclusive instants, so the last
  * calendar day shown is the day before the end when the end is at midnight.
  */
-export function formatRange(start: string | Date, end: string | Date): string {
+export function formatRange(
+  start: string | number | Date,
+  end: string | number | Date,
+): string {
   const startDate = new Date(start);
   const endDate = new Date(end);
   const inclusiveEnd = new Date(endDate.getTime() - 1);
@@ -65,7 +71,10 @@ export function formatRange(start: string | Date, end: string | Date): string {
   return `${formatDate(startDate, !sameYear)} – ${formatDate(inclusiveEnd, true)}`;
 }
 
-export function formatRelative(value: string | Date, now = Date.now()): string {
+export function formatRelative(
+  value: string | number | Date,
+  now = Date.now(),
+): string {
   const diff = now - new Date(value).getTime();
   const minutes = Math.round(diff / 60_000);
   if (minutes < 1) return "just now";
