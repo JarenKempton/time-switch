@@ -4,15 +4,13 @@ import { Badge } from "@/web/components/ui/badge";
 import { Button } from "@/web/components/ui/button";
 import { Switch } from "@/web/components/ui/switch";
 import { Label } from "@/web/components/ui/label";
-import { describeCadence, upcomingPeriods } from "../lib/pay-period";
 import type { Company } from "../api";
 import { CompanyDialog } from "../components/CompanyDialog";
 import { CompanyMark, companyStyle } from "../components/CompanyMark";
-import { formatRange } from "../format";
 import type { TimeClockData } from "../use-time-clock";
 
 export function Settings({ data }: { data: TimeClockData }) {
-  const { companies, now } = data;
+  const { companies } = data;
   const [showArchived, setShowArchived] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Company | null>(null);
@@ -49,46 +47,34 @@ export function Settings({ data }: { data: TimeClockData }) {
 
         {visible.length ? (
           <ul className="company-list">
-            {visible.map((company) => {
-              const [current, next] = upcomingPeriods(
-                company,
-                new Date(now),
-                2,
-              );
-              return (
-                <li
-                  key={company.id}
-                  className={company.archived ? "is-archived" : ""}
-                  style={companyStyle(company)}
+            {visible.map((company) => (
+              <li
+                key={company.id}
+                className={company.archived ? "is-archived" : ""}
+                style={companyStyle(company)}
+              >
+                <CompanyMark company={company} size="lg" />
+                <div className="company-list-body">
+                  <strong>
+                    {company.name}
+                    {company.archived && (
+                      <Badge variant="secondary" className="ml-2">
+                        Archived
+                      </Badge>
+                    )}
+                  </strong>
+                  <code>{company.id}</code>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openEditor(company)}
                 >
-                  <CompanyMark company={company} size="lg" />
-                  <div className="company-list-body">
-                    <strong>
-                      {company.name}
-                      {company.archived && (
-                        <Badge variant="secondary" className="ml-2">
-                          Archived
-                        </Badge>
-                      )}
-                    </strong>
-                    <span>{describeCadence(company)}</span>
-                    <span>
-                      Current {formatRange(current.start, current.end)} · next{" "}
-                      {formatRange(next.start, next.end)}
-                    </span>
-                    <code>{company.id}</code>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openEditor(company)}
-                  >
-                    <PencilIcon />
-                    Edit
-                  </Button>
-                </li>
-              );
-            })}
+                  <PencilIcon />
+                  Edit
+                </Button>
+              </li>
+            ))}
           </ul>
         ) : (
           <div className="empty-panel">

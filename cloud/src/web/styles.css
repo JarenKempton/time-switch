@@ -210,6 +210,9 @@ h2 {
 .section--first {
   margin-top: 8px;
 }
+.section--tight {
+  margin-top: 14px;
+}
 .section-heading {
   display: flex;
   align-items: flex-end;
@@ -409,73 +412,51 @@ h2 {
 
 .hero {
   --company-color: var(--primary);
-  position: relative;
-  overflow: hidden;
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 24px 32px;
-  align-items: end;
-  padding: 30px 32px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 40px;
+  align-items: start;
+  padding: 24px 28px 0;
   border: 1px solid var(--border);
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-xl);
   background: var(--card);
 }
 .hero--active {
-  border-color: color-mix(in srgb, var(--company-color) 30%, var(--border));
+  border-color: color-mix(in srgb, var(--company-color) 35%, var(--border));
+}
+.hero > * {
+  min-width: 0;
 }
 .hero-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
   color: var(--muted-foreground);
   font-size: 0.85rem;
   font-weight: 500;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 .hero h1 {
-  font-size: clamp(1.6rem, 3vw, 2.2rem);
-  line-height: 1.05;
-  letter-spacing: -0.04em;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
   font-weight: 700;
-}
-.hero-main > p,
-.hero-company p {
-  margin-top: 8px;
-  color: var(--muted-foreground);
 }
 .hero-company {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
 }
-.clock-out {
+.hero-footer {
   grid-column: 1 / -1;
-  width: 100%;
-  height: 44px;
-  margin-top: 4px;
-  font-weight: 600;
-}
-.clock-out svg {
-  color: var(--destructive);
-}
-.clock-out:hover {
-  background: var(--muted);
-}
-.hero-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 24px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 22px -28px 0;
+  padding: 12px 28px;
+  border-top: 1px solid var(--border);
 }
-.clock-in {
-  --company-color: var(--primary);
-  border-color: color-mix(in srgb, var(--company-color) 40%, var(--border));
-}
-.clock-in svg {
-  color: var(--company-color);
-}
-.clock-in:hover {
-  background: color-mix(in srgb, var(--company-color) 12%, transparent);
+.hero-footer-note {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
 }
 .hero-timer {
   text-align: right;
@@ -488,12 +469,275 @@ h2 {
 }
 .hero-timer strong {
   display: block;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  font-size: clamp(2rem, 4vw, 3rem);
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
   line-height: 1;
-  font-weight: 500;
+  font-weight: 650;
   letter-spacing: -0.04em;
+}
+
+/* ---------- Today ---------- */
+
+.today {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 24px;
+  align-items: start;
+}
+.today-main-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--card);
+}
+.today-main-heading h2 {
+  font-size: 1rem;
+}
+.today-main .timeline {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.today-empty {
+  display: grid;
+  gap: 4px;
+  padding: 40px 24px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+  background: var(--card);
+  color: var(--muted-foreground);
+}
+.today-empty strong {
   color: var(--foreground);
+}
+.today-side {
+  position: sticky;
+  top: 76px;
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+}
+.today-total strong {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 2.4rem;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+.today-total strong small {
+  font-size: 0.45em;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  letter-spacing: 0;
+}
+.today-total-meta {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: var(--muted-foreground);
+}
+.split-bar {
+  display: flex;
+  gap: 3px;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.split-bar i {
+  --company-color: var(--primary);
+  display: block;
+  flex: 1 1 0;
+  min-width: 4px;
+  background: var(--company-color);
+  border-radius: 999px;
+}
+.split-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.split-list li {
+  --company-color: var(--primary);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.split-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.split-share {
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.split-list strong {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.split-list strong small {
+  font-size: 0.7em;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+/* ---------- Timeline ---------- */
+
+.timeline {
+  position: relative;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  padding: 12px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  box-sizing: content-box;
+  overflow: hidden;
+}
+.timeline-hours {
+  position: relative;
+}
+.timeline-hours span {
+  position: absolute;
+  right: 10px;
+  transform: translateY(-50%);
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.timeline-track {
+  position: relative;
+  margin-right: 14px;
+}
+.timeline-rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--border);
+  opacity: 0.7;
+}
+.timeline-block {
+  --company-color: var(--primary);
+  position: absolute;
+  left: 10px;
+  right: 0;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "name duration"
+    "time time"
+    "note note";
+  align-content: start;
+  gap: 1px 10px;
+  padding: 6px 10px 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--company-color) 40%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--company-color) 16%, var(--card));
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
+}
+.timeline-block:hover {
+  background: color-mix(in srgb, var(--company-color) 26%, var(--card));
+  border-color: color-mix(in srgb, var(--company-color) 70%, transparent);
+}
+.timeline-block strong {
+  grid-area: name;
+  font-size: 0.88rem;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.timeline-block span {
+  grid-area: time;
+  font-size: 0.76rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.timeline-block em {
+  grid-area: duration;
+  font-style: normal;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--company-color) 80%, white);
+}
+.timeline-block small {
+  grid-area: note;
+  margin-top: 2px;
+  font-size: 0.74rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Short blocks collapse to a single line: name and duration only. */
+.timeline-block--compact {
+  grid-template-areas: "name duration";
+  align-content: center;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.timeline-block--compact span,
+.timeline-block--compact small {
+  display: none;
+}
+.timeline-block--live {
+  border-style: dashed;
+}
+.timeline-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 2px solid var(--destructive);
+  pointer-events: none;
+  z-index: 2;
+}
+.timeline-now::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: -5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--destructive);
+}
+.timeline-now span {
+  position: absolute;
+  right: 0;
+  top: -9px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--destructive);
+  color: var(--background);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 /* ---------- Period cards ---------- */
@@ -517,24 +761,18 @@ h2 {
 .period-card--active {
   border-color: color-mix(in srgb, var(--company-color) 30%, var(--border));
 }
-/*
- * Two rows: the name row also holds the company mark and the Live chip, so
- * both center on the name's line box rather than on the whole header.
- */
+/* Two rows: the mark shares the name row so it centers on the name's line box. */
 .period-card-header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   grid-template-areas:
-    "mark name chip"
-    ". cadence .";
+    "mark name"
+    ". cadence";
   column-gap: 12px;
   align-items: center;
 }
 .period-card-header > .company-mark {
   grid-area: mark;
-}
-.period-card-header > .live-chip {
-  grid-area: chip;
 }
 .period-card h3 {
   grid-area: name;
@@ -552,29 +790,6 @@ h2 {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.live-chip {
-  --chip: var(--company-color, var(--primary));
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 9px 0 8px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--chip) 40%, transparent);
-  background: color-mix(in srgb, var(--chip) 10%, transparent);
-  color: var(--chip);
-  font-size: 0.72rem;
-  font-weight: 650;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  flex: 0 0 auto;
-}
-.live-chip i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--chip);
 }
 .period-total strong {
   display: flex;
@@ -929,8 +1144,21 @@ h2 {
     gap: 22px;
     padding: 22px;
   }
+  .hero {
+    padding: 22px 22px 0;
+  }
+  .hero-footer {
+    margin: 18px -22px 0;
+    padding: 12px 22px;
+  }
   .hero-timer {
     text-align: left;
+  }
+  .today {
+    grid-template-columns: 1fr;
+  }
+  .today-side {
+    position: static;
   }
   .filters {
     grid-template-columns: 1fr;

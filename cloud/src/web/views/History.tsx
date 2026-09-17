@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { DownloadIcon, PencilIcon, Trash2Icon, Undo2Icon } from "lucide-react";
+import {
+  DownloadIcon,
+  PencilIcon,
+  ReceiptTextIcon,
+  Trash2Icon,
+  Undo2Icon,
+} from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,6 +18,7 @@ import {
   AlertDialogTrigger,
 } from "@/web/components/ui/alert-dialog";
 import { Button } from "@/web/components/ui/button";
+import { Skeleton } from "@/web/components/ui/skeleton";
 import { Input } from "@/web/components/ui/input";
 import { Label } from "@/web/components/ui/label";
 import {
@@ -29,24 +36,43 @@ import {
   TableHeader,
   TableRow,
 } from "@/web/components/ui/table";
-import { dateOnly, toDateInput } from "../lib/pay-period";
+import { dateOnly, toDateInput } from "../lib/dates";
 import { timeClock, type Session, type Summary } from "../api";
 import { CompanyMark, companyStyle } from "../components/CompanyMark";
+import { RetrieveHoursDialog } from "../components/RetrieveHoursDialog";
 import { SessionDialog } from "../components/SessionDialog";
 import {
   formatDateTime,
   formatDuration,
   formatHours,
   formatRange,
+  formatRelative,
   formatTime,
   sessionSeconds,
 } from "../format";
+import { usePeriods, type CompanyPeriod } from "../use-periods";
 import type { TimeClockData } from "../use-time-clock";
 
 const ALL = "all";
 
 export function History({ data }: { data: TimeClockData }) {
-  const { companies, retrievals, latestRetrievalByCompany, now } = data;
+  const {
+    companies,
+    activeCompanies,
+    retrievals,
+    latestRetrievalByCompany,
+    status,
+    now,
+    loading,
+  } = data;
+  const periods = usePeriods(
+    activeCompanies,
+    latestRetrievalByCompany,
+    status,
+    now,
+    data.sessions,
+  );
+  const [retrieving, setRetrieving] = useState<CompanyPeriod | null>(null);
   const [companyId, setCompanyId] = useState(ALL);
   const [from, setFrom] = useState(() =>
     toDateInput(new Date(Date.now() - 30 * 86_400_000)),
@@ -133,7 +159,125 @@ export function History({ data }: { data: TimeClockData }) {
     <>
       <section className="section section--first">
         <div className="section-heading">
-          <h2>History</h2>
+          <h2>Pay periods</h2>
+        </div>
+        {loading ? (
+          <div className="period-grid">
+            <Skeleton className="h-40" />
+            <Skeleton className="h-40" />
+          </div>
+        ) : periods.length ? (
+          <div className="period-grid">
+            {periods.map((entry) => (
+              <PeriodCard
+                key={entry.company.id}
+                entry={entry}
+                now={now}
+                isActive={status.activeSession?.companyId === entry.company.id}
+                onRetrieve={() => setRetrieving(entry)}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="empty">Add a company to start tracking pay periods.</p>
+        )}
+      </section>
+
+      <section className="section">
+        <div className="section-heading">
+          <h2>Closed periods</h2>
+        </div>
+        {visibleRetrievals.length ? (
+          <div className="table-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Period</TableHead>
+                  <TableHead className="text-right">Hours</TableHead>
+                  <TableHead>Closed</TableHead>
+                  <TableHead>Note</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visibleRetrievals.map((retrieval) => {
+                  const isLatest =
+                    latestRetrievalByCompany.get(retrieval.companyId)?.id ===
+                    retrieval.id;
+                  return (
+                    <TableRow key={retrieval.id}>
+                      <TableCell>
+                        <span className="cell-company">
+                          <CompanyMark company={retrieval.company} size="sm" />
+                          {retrieval.company.name}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        {formatDateTime(retrieval.periodStart)} –{" "}
+                        {formatDateTime(retrieval.periodEnd)}
+                      </TableCell>
+                      <TableCell className="text-right tabular font-semibold">
+                        {formatHours(retrieval.totalSeconds)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {formatDateTime(retrieval.createdAt)}
+                      </TableCell>
+                      <TableCell className="max-w-56 truncate text-muted-foreground">
+                        {retrieval.note ?? ""}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {isLatest && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="Reopen this period"
+                                title="Reopen this period"
+                              >
+                                <Undo2Icon />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Reopen this period?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Its hours are folded back into the open period
+                                  for {retrieval.company.name}.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Keep</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => void undo(retrieval.id)}
+                                >
+                                  Reopen
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <p className="empty">
+            No periods closed yet. Use “Close period” above when you send hours
+            in.
+          </p>
+        )}
+      </section>
+
+      <section className="section">
+        <div className="section-heading">
+          <h2>Sessions</h2>
           <Button variant="outline" size="sm" asChild>
             <a href={timeClock.exportUrl(params)}>
               <DownloadIcon />
@@ -207,104 +351,10 @@ export function History({ data }: { data: TimeClockData }) {
         )}
       </section>
 
-      <section className="section">
+      <section className="section section--tight">
         <div className="section-heading">
-          <h2>Retrieved hours</h2>
-        </div>
-        {visibleRetrievals.length ? (
-          <div className="table-card">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Period</TableHead>
-                  <TableHead className="text-right">Hours</TableHead>
-                  <TableHead>Retrieved</TableHead>
-                  <TableHead>Note</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {visibleRetrievals.map((retrieval) => {
-                  const isLatest =
-                    latestRetrievalByCompany.get(retrieval.companyId)?.id ===
-                    retrieval.id;
-                  return (
-                    <TableRow key={retrieval.id}>
-                      <TableCell>
-                        <span className="cell-company">
-                          <CompanyMark company={retrieval.company} size="sm" />
-                          {retrieval.company.name}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {formatRange(
-                          retrieval.periodStart,
-                          retrieval.periodEnd,
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right tabular font-semibold">
-                        {formatHours(retrieval.totalSeconds)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatDateTime(retrieval.createdAt)}
-                      </TableCell>
-                      <TableCell className="max-w-56 truncate text-muted-foreground">
-                        {retrieval.note ?? ""}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {isLatest && (
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label="Undo this retrieval"
-                              >
-                                <Undo2Icon />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>
-                                  Undo this retrieval?
-                                </AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  The hours go back to being open and the pay
-                                  period returns to its regular schedule.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Keep</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => void undo(retrieval.id)}
-                                >
-                                  Undo
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        ) : (
-          <p className="empty">
-            Nothing retrieved yet. Use “Get hours” on the dashboard when you
-            invoice.
-          </p>
-        )}
-      </section>
-
-      <section className="section">
-        <div className="section-heading">
-          <h2>Sessions</h2>
           <span className="text-sm text-muted-foreground">
-            {rows.length} in range
+            {rows.length} session{rows.length === 1 ? "" : "s"} in range
           </span>
         </div>
         {rows.length ? (
@@ -334,10 +384,7 @@ export function History({ data }: { data: TimeClockData }) {
                       {session.endedAt ? (
                         formatTime(session.endedAt)
                       ) : (
-                        <span className="live-chip">
-                          <i aria-hidden="true" />
-                          Live
-                        </span>
+                        <span className="text-muted-foreground">now</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right tabular font-semibold">
@@ -418,6 +465,80 @@ export function History({ data }: { data: TimeClockData }) {
         }}
         onError={data.setError}
       />
+      <RetrieveHoursDialog
+        entry={retrieving}
+        onOpenChange={(open) => {
+          if (!open) setRetrieving(null);
+        }}
+        onSaved={async () => {
+          setRetrieving(null);
+          await data.refresh();
+        }}
+        onError={data.setError}
+      />
     </>
+  );
+}
+
+function PeriodCard({
+  entry,
+  now,
+  isActive,
+  onRetrieve,
+}: {
+  entry: CompanyPeriod;
+  now: number;
+  isActive: boolean;
+  onRetrieve: () => void;
+}) {
+  const { company, start, totalSeconds, sessionCount, latestRetrieval } = entry;
+  const exportUrl = timeClock.exportUrl({
+    companyId: company.id,
+    from: start.toISOString(),
+  });
+  return (
+    <article
+      className={`period-card ${isActive ? "period-card--active" : ""}`}
+      style={companyStyle(company)}
+    >
+      <header className="period-card-header">
+        <CompanyMark company={company} />
+        <h3>{company.name}</h3>
+        <span className="period-cadence">
+          Open since {formatDateTime(start)}
+        </span>
+      </header>
+
+      <div className="period-total">
+        <strong className="tabular">
+          {entry.loaded ? formatHours(totalSeconds) : "—"}
+          <small> h</small>
+          {entry.loaded && (
+            <em className="tabular">{formatDuration(totalSeconds)}</em>
+          )}
+        </strong>
+        <span>
+          {entry.loaded
+            ? `${sessionCount} session${sessionCount === 1 ? "" : "s"}`
+            : "Counting…"}
+          {" · "}
+          {latestRetrieval
+            ? `last closed ${formatRelative(latestRetrieval.createdAt, now)}`
+            : "never closed"}
+        </span>
+      </div>
+
+      <footer>
+        <Button onClick={onRetrieve} className="grow" disabled={!entry.loaded}>
+          <ReceiptTextIcon />
+          Close period
+        </Button>
+        <Button variant="outline" size="icon" asChild>
+          <a href={exportUrl} aria-label={`Export ${company.name} CSV`}>
+            <DownloadIcon />
+          </a>
+        </Button>
+      </footer>
+    </article>
   );
 }
