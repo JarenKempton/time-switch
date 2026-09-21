@@ -604,11 +604,18 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
 
   private async handleDeviceStart(request: Request): Promise<Response> {
     const input = deviceStartSessionSchema.parse(await readJson(request));
-    const result = this.startSession({
-      id: input.id,
-      companyId: input.companyId,
-      startedAt: parseDate(input.startedAt),
-    });
+    const startedAt = parseDate(input.startedAt);
+    const result = this.startSession(
+      { id: input.id, companyId: input.companyId, startedAt },
+      { closeActiveAt: startedAt },
+    );
+    if (result.closedPrevious) {
+      this.broadcast({
+        type: "session.stopped",
+        status: this.getStatus(),
+        session: result.closedPrevious,
+      });
+    }
     if (result.created) {
       this.broadcast({
         type: "session.started",
@@ -638,13 +645,17 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
     });
   }
 
-  private startSession(input: {
-    id: string;
-    companyId: string;
-    startedAt: Date;
-  }): {
+  private startSession(
+    input: {
+      id: string;
+      companyId: string;
+      startedAt: Date;
+    },
+    options: { closeActiveAt?: Date } = {},
+  ): {
     session: SessionWithCompany;
     created: boolean;
+    closedPrevious?: SessionWithCompany;
   } {
     return this.db.transaction((tx) => {
       const existing = tx
@@ -684,16 +695,40 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
         );
       }
       const active = tx
-        .select({ id: sessions.id })
+        .select()
         .from(sessions)
         .where(isNull(sessions.endedAt))
         .get();
-      if (active)
-        throw new ApiError(
-          409,
-          "session_already_active",
-          "Stop the active session before starting another.",
-        );
+      let closedPrevious: SessionWithCompany | undefined;
+      if (active) {
+        // The dashboard (human) start refuses when a session is already open —
+        // that guard catches a forgotten stop. A device start is different: the
+        // physical switch is the source of truth, so flipping to a new position
+        // implicitly ends whatever was running. Close the dangling session at
+        // the new start time (the flip moment) instead of throwing 409, which
+        // would otherwise poison the device's offline queue forever.
+        if (!options.closeActiveAt) {
+          throw new ApiError(
+            409,
+            "session_already_active",
+            "Stop the active session before starting another.",
+          );
+        }
+        const endedAt =
+          options.closeActiveAt.getTime() >= active.startedAt.getTime()
+            ? options.closeActiveAt
+            : active.startedAt;
+        tx.update(sessions)
+          .set({ endedAt, updatedAt: new Date() })
+          .where(eq(sessions.id, active.id))
+          .run();
+        const activeCompany = tx
+          .select()
+          .from(companies)
+          .where(eq(companies.id, active.companyId))
+          .get()!;
+        closedPrevious = { ...active, endedAt, company: activeCompany };
+      }
 
       const now = new Date();
       const session: Session = {
@@ -706,7 +741,11 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
         updatedAt: now,
       };
       tx.insert(sessions).values(session).run();
-      return { session: { ...session, company }, created: true };
+      return {
+        session: { ...session, company },
+        created: true,
+        closedPrevious,
+      };
     });
   }
 
@@ -838,13 +877,13 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
         .where(eq(companies.id, current.companyId))
         .get()!;
       if (current.endedAt) {
-        if (current.endedAt.getTime() !== endedAt.getTime()) {
-          throw new ApiError(
-            409,
-            "session_already_stopped",
-            "That session was already stopped at a different time.",
-          );
-        }
+        // Stopping an already-stopped session is idempotent: the caller wanted
+        // this session closed and it is closed. A device replaying a queued
+        // stop must not get a hard 409 on an endedAt mismatch — that turns the
+        // op into a poison entry that blocks its whole offline queue and retries
+        // forever. First stop wins: keep the recorded endedAt and report no
+        // change. (Consistent with tolerateMissing above, which already lets a
+        // stop for a vanished session succeed idempotently.)
         return { session: { ...current, company }, changed: false as const };
       }
       if (endedAt < current.startedAt) {
