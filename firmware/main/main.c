@@ -42,10 +42,16 @@
 #define STORAGE_VERSION 1U
 #define MAX_PENDING_OPERATIONS 16
 #define MIN_VALID_UNIX_TIMESTAMP 1704067200LL  // 2024-01-01T00:00:00Z
-#define FIRMWARE_VERSION "0.2.4"
+#define FIRMWARE_VERSION "0.2.5"
 #define HEARTBEAT_INTERVAL_MS 30000
 #define WIFI_RETRY_INITIAL_MS 1000
 #define WIFI_RETRY_MAX_MS 15000
+// Offline queue delivery cadence. A pending operation that keeps failing with a
+// retryable error (transport failure, timeout, 429, or 5xx) is retried with an
+// exponential backoff instead of hammering the server every idle interval.
+#define NETWORK_IDLE_INTERVAL_MS 1500
+#define OP_RETRY_INITIAL_MS 1500
+#define OP_RETRY_MAX_MS 60000
 
 typedef enum {
   SWITCH_LEFT,
@@ -58,6 +64,15 @@ typedef enum {
   OPERATION_START = 1,
   OPERATION_STOP = 2,
 } operation_type_t;
+
+// Outcome classification for a signed request, so the offline queue can tell a
+// transient failure (retry later) from a definitive rejection (drop the op so
+// it does not poison the queue by looping on the same request forever).
+typedef enum {
+  REQUEST_SUCCESS,    // 2xx
+  REQUEST_RETRY,      // transport error, timeout, 429, or 5xx — try again later
+  REQUEST_PERMANENT,  // definitive 4xx — retrying the same bytes will never work
+} request_outcome_t;
 
 typedef struct {
   uint8_t type;
@@ -135,6 +150,13 @@ static void emit_wifi_disconnected(const wifi_event_sta_disconnected_t *event) {
 static void emit_provisioning_failure(esp_err_t error, int http_status) {
   printf("TSJSON:{\"type\":\"network.status\",\"stage\":\"provisioning\",\"status\":\"failed\",\"transportError\":%ld,\"httpStatus\":%d}\n",
          (long)error, http_status);
+  fflush(stdout);
+}
+
+static void emit_operation_dropped(const pending_operation_t *operation,
+                                   int http_status) {
+  printf("TSJSON:{\"type\":\"operation.dropped\",\"operationType\":%u,\"sessionId\":\"%s\",\"httpStatus\":%d}\n",
+         (unsigned)operation->type, operation->session_id, http_status);
   fflush(stdout);
 }
 
@@ -382,7 +404,9 @@ static bool sign_request(const char *timestamp, const char *method, const char *
   return true;
 }
 
-static bool send_signed_request(const char *path, const char *body) {
+static request_outcome_t send_signed_request(const char *path, const char *body,
+                                             int *out_status) {
+  if (out_status) *out_status = 0;
   char url[260];
   snprintf(url, sizeof(url), "%s%s", config.api_url, path);
   char timestamp[24];
@@ -390,7 +414,7 @@ static bool send_signed_request(const char *path, const char *body) {
   char signature[68];
   if (!sign_request(timestamp, "POST", path, body, signature)) {
     ESP_LOGE(TAG, "Could not sign request");
-    return false;
+    return REQUEST_RETRY;
   }
 
   const esp_http_client_config_t http_config = {
@@ -399,7 +423,7 @@ static bool send_signed_request(const char *path, const char *body) {
       .crt_bundle_attach = esp_crt_bundle_attach,
   };
   esp_http_client_handle_t client = esp_http_client_init(&http_config);
-  if (!client) return false;
+  if (!client) return REQUEST_RETRY;
   esp_http_client_set_method(client, HTTP_METHOD_POST);
   esp_http_client_set_header(client, "Content-Type", "application/json");
   esp_http_client_set_header(client, "X-Time-Switch-Device", config.device_id);
@@ -410,15 +434,21 @@ static bool send_signed_request(const char *path, const char *body) {
   const esp_err_t result = esp_http_client_perform(client);
   const int status = result == ESP_OK ? esp_http_client_get_status_code(client) : 0;
   esp_http_client_cleanup(client);
+  if (out_status) *out_status = status;
   if (result != ESP_OK) {
     ESP_LOGW(TAG, "Request failed: %s", esp_err_to_name(result));
-    return false;
+    return REQUEST_RETRY;
   }
-  if (status < 200 || status >= 300) {
-    ESP_LOGE(TAG, "Server rejected pending operation with HTTP %d", status);
-    return false;
+  if (status >= 200 && status < 300) return REQUEST_SUCCESS;
+  // A definitive 4xx (other than 429 rate limiting) means the server understood
+  // the request and refused it; resending the identical bytes will loop forever.
+  // Everything else (3xx, 429, 5xx, unexpected) is transient and worth retrying.
+  if (status >= 400 && status < 500 && status != 429) {
+    ESP_LOGE(TAG, "Server permanently rejected request with HTTP %d", status);
+    return REQUEST_PERMANENT;
   }
-  return true;
+  ESP_LOGW(TAG, "Server temporarily rejected request with HTTP %d; will retry", status);
+  return REQUEST_RETRY;
 }
 
 typedef struct {
@@ -505,10 +535,11 @@ static bool send_heartbeat(void) {
   const char *path = "/device/v1/heartbeat";
   char body[96];
   snprintf(body, sizeof(body), "{\"firmwareVersion\":\"%s\"}", FIRMWARE_VERSION);
-  return send_signed_request(path, body);
+  return send_signed_request(path, body, NULL) == REQUEST_SUCCESS;
 }
 
-static bool send_operation(const pending_operation_t *operation) {
+static request_outcome_t send_operation(const pending_operation_t *operation,
+                                        int *out_status) {
   char path[96];
   char occurred_at[25];
   char body[256];
@@ -521,12 +552,14 @@ static bool send_operation(const pending_operation_t *operation) {
     snprintf(path, sizeof(path), "/device/v1/sessions/%s/stop", operation->session_id);
     snprintf(body, sizeof(body), "{\"endedAt\":\"%s\"}", occurred_at);
   }
-  return send_signed_request(path, body);
+  return send_signed_request(path, body, out_status);
 }
 
 static void network_task(void *parameter) {
   (void)parameter;
+  uint32_t op_retry_delay_ms = OP_RETRY_INITIAL_MS;
   while (true) {
+    uint32_t loop_delay_ms = NETWORK_IDLE_INTERVAL_MS;
     const EventBits_t bits = xEventGroupGetBits(wifi_events);
     if ((bits & WIFI_CONNECTED_BIT) && clock_ready()) {
       if (!clock_was_ready) {
@@ -538,7 +571,7 @@ static void network_task(void *parameter) {
         provision_device();
       }
       if (config.device_secret[0] == '\0') {
-        vTaskDelay(pdMS_TO_TICKS(1500));
+        vTaskDelay(pdMS_TO_TICKS(NETWORK_IDLE_INTERVAL_MS));
         continue;
       }
       const TickType_t now_tick = xTaskGetTickCount();
@@ -558,22 +591,48 @@ static void network_task(void *parameter) {
       }
       xSemaphoreGive(state_mutex);
 
-      if (has_operation && send_operation(&operation)) {
-        xSemaphoreTake(state_mutex, portMAX_DELAY);
-        if (state.operation_count > 0 &&
-            strcmp(state.operations[0].session_id, operation.session_id) == 0 &&
-            state.operations[0].type == operation.type) {
-          memmove(&state.operations[0], &state.operations[1],
-                  sizeof(state.operations[0]) * (state.operation_count - 1));
-          state.operation_count--;
-          memset(&state.operations[state.operation_count], 0, sizeof(state.operations[0]));
-          ESP_ERROR_CHECK_WITHOUT_ABORT(save_state_locked());
-          ESP_LOGI(TAG, "Delivered pending operation; remaining=%u", state.operation_count);
+      if (has_operation) {
+        int op_status = 0;
+        const request_outcome_t outcome = send_operation(&operation, &op_status);
+        if (outcome == REQUEST_RETRY) {
+          // Leave the operation at the head and back off, so a server outage or
+          // rate limit becomes a widening retry rather than a tight 1.5s loop.
+          loop_delay_ms = op_retry_delay_ms;
+          if (op_retry_delay_ms < OP_RETRY_MAX_MS) {
+            op_retry_delay_ms *= 2;
+            if (op_retry_delay_ms > OP_RETRY_MAX_MS) op_retry_delay_ms = OP_RETRY_MAX_MS;
+          }
+        } else {
+          // Success or a permanent rejection: either way the head operation is
+          // finished, so remove it and resume the normal cadence. Dropping a
+          // permanently rejected op (definitive 4xx) is what stops one bad
+          // request from poisoning the whole queue behind it.
+          op_retry_delay_ms = OP_RETRY_INITIAL_MS;
+          bool dropped = false;
+          xSemaphoreTake(state_mutex, portMAX_DELAY);
+          if (state.operation_count > 0 &&
+              strcmp(state.operations[0].session_id, operation.session_id) == 0 &&
+              state.operations[0].type == operation.type) {
+            memmove(&state.operations[0], &state.operations[1],
+                    sizeof(state.operations[0]) * (state.operation_count - 1));
+            state.operation_count--;
+            memset(&state.operations[state.operation_count], 0, sizeof(state.operations[0]));
+            ESP_ERROR_CHECK_WITHOUT_ABORT(save_state_locked());
+            if (outcome == REQUEST_PERMANENT) {
+              dropped = true;
+              ESP_LOGE(TAG, "Dropped rejected operation (HTTP %d); remaining=%u",
+                       op_status, state.operation_count);
+            } else {
+              ESP_LOGI(TAG, "Delivered pending operation; remaining=%u",
+                       state.operation_count);
+            }
+          }
+          xSemaphoreGive(state_mutex);
+          if (dropped) emit_operation_dropped(&operation, op_status);
         }
-        xSemaphoreGive(state_mutex);
       }
     }
-    vTaskDelay(pdMS_TO_TICKS(1500));
+    vTaskDelay(pdMS_TO_TICKS(loop_delay_ms));
   }
 }
 
