@@ -102,6 +102,25 @@ async function provisionDevice(name = "Desk panel") {
   return body.data;
 }
 
+async function deviceFetch<T>(
+  path: string,
+  payload: unknown,
+  device: { deviceId: string; secret: string },
+): Promise<{ status: number; body: T }> {
+  const body = JSON.stringify(payload);
+  const response = await SELF.fetch(`https://example.test${path}`, {
+    method: "POST",
+    headers: await signedDeviceHeaders(
+      path,
+      body,
+      device.deviceId,
+      device.secret,
+    ),
+    body,
+  });
+  return { status: response.status, body: (await response.json()) as T };
+}
+
 describe("time clock API", () => {
   it("verifies device authentication and migrated storage through health", async () => {
     const device = await provisionDevice();
@@ -490,6 +509,88 @@ describe("time clock API", () => {
     );
     expect(conflict.status).toBe(409);
     expect(conflict.body.error.code).toBe("session_already_active");
+  });
+
+  it("treats a re-stop at a different time as idempotent (offline replay)", async () => {
+    const company = await createCompany();
+    const companyId = company.body.data.id;
+    const sessionId = "018f47a0-7b8c-4c5d-9e6f-0123456789ab";
+    await request("/api/v1/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        id: sessionId,
+        companyId,
+        startedAt: "2026-09-12T09:00:00.000Z",
+      }),
+    });
+    const first = await request(`/api/v1/sessions/${sessionId}/stop`, {
+      method: "POST",
+      body: JSON.stringify({ endedAt: "2026-09-12T13:00:00.000Z" }),
+    });
+    expect(first.status).toBe(200);
+
+    // A device replaying its queued stop with a different endedAt must not get
+    // a 409 — that would poison its offline queue and loop forever. First stop
+    // wins: the recorded endedAt is unchanged and the call succeeds.
+    const replay = await request<{
+      data: { session: { endedAt: string }; durationSeconds: number };
+    }>(`/api/v1/sessions/${sessionId}/stop`, {
+      method: "POST",
+      body: JSON.stringify({ endedAt: "2026-09-12T17:00:00.000Z" }),
+    });
+    expect(replay.status).toBe(200);
+    expect(replay.body.data.session.endedAt).toBe("2026-09-12T13:00:00.000Z");
+    expect(replay.body.data.durationSeconds).toBe(14_400);
+  });
+
+  it("closes a dangling active session when the device starts a new one", async () => {
+    const device = await provisionDevice("Bench panel");
+    const alpha = await createCompany("Alpha");
+    const beta = await createCompany("Beta");
+    const first = "018f47a0-0000-4c5d-9e6f-000000000001";
+    const second = "018f47a0-0000-4c5d-9e6f-000000000002";
+
+    const startFirst = await deviceFetch<{ data: { id: string } }>(
+      "/device/v1/sessions/start",
+      {
+        id: first,
+        companyId: alpha.body.data.id,
+        startedAt: "2026-09-12T15:00:00.000Z",
+      },
+      device,
+    );
+    expect(startFirst.status).toBe(201);
+
+    // The switch flips to Beta without a delivered stop for Alpha. The physical
+    // switch is the source of truth, so the start closes Alpha at the flip time
+    // rather than returning session_already_active (which looped in prod).
+    const startSecond = await deviceFetch<{
+      data: { id: string; companyId: string };
+    }>(
+      "/device/v1/sessions/start",
+      {
+        id: second,
+        companyId: beta.body.data.id,
+        startedAt: "2026-09-12T16:00:00.000Z",
+      },
+      device,
+    );
+    expect(startSecond.status).toBe(201);
+    expect(startSecond.body.data).toMatchObject({
+      id: second,
+      companyId: beta.body.data.id,
+    });
+
+    const status = await request<{
+      data: { activeSession: { id: string } | null };
+    }>("/api/v1/status");
+    expect(status.body.data.activeSession?.id).toBe(second);
+
+    const sessions = await request<{
+      data: Array<{ id: string; endedAt: string | null }>;
+    }>("/api/v1/sessions");
+    const alphaRow = sessions.body.data.find((s) => s.id === first);
+    expect(alphaRow?.endedAt).toBe("2026-09-12T16:00:00.000Z");
   });
 
   it("calculates totals clipped to the requested reporting range", async () => {

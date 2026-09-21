@@ -106,6 +106,21 @@ export default {
       versionId,
       path.startsWith("/api/") || path.startsWith("/device/"),
     );
+    // On error responses, capture the machine-readable error code (from the
+    // JSON body) so request logs distinguish e.g. session_already_active from
+    // session_id_conflict without a second round trip. Read a clone so the
+    // returned response body stays intact.
+    let errorCode: string | undefined;
+    if (result.status >= 400) {
+      try {
+        const body = (await result.clone().json()) as {
+          error?: { code?: string };
+        };
+        errorCode = body.error?.code;
+      } catch {
+        // Non-JSON error body (e.g. asset 404); leave errorCode undefined.
+      }
+    }
     console.log(
       JSON.stringify({
         event: "request.complete",
@@ -114,6 +129,7 @@ export default {
         method: request.method,
         route: routeLabel(path),
         status: result.status,
+        ...(errorCode ? { errorCode } : {}),
         durationMs: Date.now() - startedAt,
       }),
     );
