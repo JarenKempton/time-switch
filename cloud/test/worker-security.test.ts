@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
-import type { TimeClockEnv } from "../src/time-clock";
+import type { Env } from "../src/env";
 import worker from "../src/worker";
 
 describe("Worker security boundary", () => {
   it("fails closed when browser routes have no Cloudflare Access context", async () => {
     const fetch = worker.fetch as (
       request: Request,
-      env: TimeClockEnv,
+      env: Env,
       ctx: ExecutionContext,
     ) => Promise<Response>;
     const response = await fetch(
       new Request("https://example.test/api/v1/status"),
-      {} as TimeClockEnv,
+      {} as Env,
       {} as ExecutionContext,
     );
 

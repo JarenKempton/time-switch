@@ -23,6 +23,13 @@
       "bucket_name": "company-logos",
     },
   ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "time-switch",
+      "migrations_dir": "drizzle",
+    },
+  ],
   "durable_objects": {
     "bindings": [
       {
