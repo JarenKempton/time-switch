@@ -65,7 +65,7 @@ jobs:
           esp_idf_version: v5.3.5
           target: esp32c3
           path: firmware
-          command: idf.py build && cd build && esptool.py --chip esp32c3 merge_bin -o ../../cloud/public/firmware/time-switch-esp32c3.bin @flash_args
+          command: idf.py build && mkdir -p ../cloud/public/firmware && cd build && esptool.py --chip esp32c3 merge_bin -o ../../cloud/public/firmware/time-switch-esp32c3.bin @flash_args
       - name: Upload browser firmware
         if: steps.firmware-changes.outputs.changed == 'true'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

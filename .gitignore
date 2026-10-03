@@ -3,6 +3,7 @@
 **/sdkconfig.old
 cloud/node_modules/
 cloud/dist/
+cloud/public/firmware/
 cloud/.wrangler/
 cloud/.dev.vars
 cloud/.env
