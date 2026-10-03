@@ -64,14 +64,60 @@ function upsert(table, row) {
     .join(", ")}) ON CONFLICT ("id") DO UPDATE SET ${updates.join(", ")};`;
 }
 
+function removeMissing(table, rows) {
+  const ids = rows.map((row) => literal(row.id));
+  return ids.length
+    ? `DELETE FROM "${table}" WHERE "id" NOT IN (${ids.join(", ")});`
+    : `DELETE FROM "${table}";`;
+}
+
+function duplicates(rows, key) {
+  const seen = new Map();
+  for (const row of rows)
+    seen.set(key(row), [...(seen.get(key(row)) ?? []), row.id]);
+  return [...seen.values()].filter((ids) => ids.length > 1);
+}
+
+function constraintProblems(exported) {
+  const companyIds = new Set(exported.companies.map((row) => row.id));
+  const problems = [];
+  const open = exported.sessions.filter((row) => row.ended_at === null);
+  if (open.length > 1)
+    problems.push(`more than one open session: ${open.map((row) => row.id)}`);
+  for (const ids of duplicates(
+    exported.hour_retrievals,
+    (row) => `${row.company_id}|${row.period_start}`,
+  ))
+    problems.push(`pay periods share a company and start: ${ids}`);
+  for (const table of ["sessions", "hour_retrievals"])
+    for (const row of exported[table])
+      if (!companyIds.has(row.company_id))
+        problems.push(
+          `${table} ${row.id} references missing company ${row.company_id}`,
+        );
+  return problems;
+}
+
 function importTables(exported) {
-  const statements = TABLES.flatMap((table) =>
-    exported[table].map((row) => upsert(table, row)),
-  );
+  const problems = constraintProblems(exported);
+  if (problems.length)
+    fail(`IMPORT REFUSED, nothing written:\n  ${problems.join("\n  ")}`);
+  const statements = [
+    ...[...TABLES]
+      .reverse()
+      .map((table) => removeMissing(table, exported[table])),
+    ...TABLES.flatMap((table) =>
+      [...exported[table]]
+        .sort(
+          (a, b) => Number(a.ended_at === null) - Number(b.ended_at === null),
+        )
+        .map((row) => upsert(table, row)),
+    ),
+  ];
   const file = join(mkdtempSync(join(tmpdir(), "d1-import-")), "import.sql");
   writeFileSync(file, `${statements.join("\n")}\n`);
   d1([`--file=${file}`, "--yes"]);
-  console.log(`Upserted ${statements.length} rows into ${database}.`);
+  console.log(`Mirrored ${database} to the export:`);
   for (const table of TABLES)
     console.log(`  ${table}: ${exported[table].length}`);
 }
