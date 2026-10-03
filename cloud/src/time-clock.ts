@@ -17,6 +17,7 @@ import {
   type HourRetrieval,
   type Session,
 } from "./db/schema";
+import { exportDatabase, type DatabaseExport } from "./db/export";
 import { authenticateDevice, sha256Hex } from "./lib/auth";
 import {
   ApiError,
@@ -136,6 +137,10 @@ export class TimeClock extends DurableObject<TimeClockEnv> {
 
   async fetch(request: Request): Promise<Response> {
     return await this.app.fetch(request);
+  }
+
+  exportTables(): DatabaseExport {
+    return exportDatabase(this.ctx.storage.sql);
   }
 
   private configureRoutes(): void {

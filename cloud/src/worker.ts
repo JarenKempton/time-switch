@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { requireDashboardAccess } from "./lib/cloudflare-access";
-import { ApiError, errorResponse } from "./lib/http";
+import { ApiError, errorResponse, ok } from "./lib/http";
 import {
   LOGO_PATH_PREFIX,
   deleteLogo,
@@ -73,6 +73,9 @@ app.post("/api/v1/logos", (context) =>
 );
 app.delete("/api/v1/logos/:key", (context) =>
   deleteLogo(context.env.LOGOS, context.req.param("key")),
+);
+app.get("/api/v1/admin/export", async (context) =>
+  ok(await clock(context.env).exportTables()),
 );
 app.all("/api/*", (context) => clock(context.env).fetch(context.req.raw));
 app.all("*", (context) => context.env.ASSETS.fetch(context.req.raw));
