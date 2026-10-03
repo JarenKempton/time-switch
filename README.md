@@ -119,7 +119,7 @@ pnpm test
 pnpm deploy:check
 ```
 
-GitHub Actions builds the ESP32 project and merged browser image only when a pull request changes firmware. Successful CI on `main` deploys production automatically without a separate environment approval. Database changes are defined with Drizzle in `cloud/src/db/schema.ts`; generate migrations with `pnpm migrate:generate` from `cloud/`.
+GitHub Actions builds the ESP32 project and merged browser image only when a pull request changes firmware. Every production deploy rebuilds the browser image from the deployed commit, so the installer always serves the firmware on `main`; the image is not committed. Successful CI on `main` deploys production automatically without a separate environment approval. Database changes are defined with Drizzle in `cloud/src/db/schema.ts`; generate migrations with `pnpm migrate:generate` from `cloud/`.
 
 ## Useful console commands
 
