@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -39,6 +40,9 @@ export const sessions = sqliteTable(
       table.companyId,
       table.startedAt,
     ),
+    uniqueIndex("idx_sessions_one_open")
+      .on(sql`(${table.endedAt} IS NULL)`)
+      .where(sql`${table.endedAt} IS NULL`),
   ],
 );
 
@@ -89,6 +93,10 @@ export const hourRetrievals = sqliteTable(
     index("idx_hour_retrievals_company_period_end").on(
       table.companyId,
       table.periodEnd,
+    ),
+    uniqueIndex("idx_hour_retrievals_company_period_start").on(
+      table.companyId,
+      table.periodStart,
     ),
   ],
 );

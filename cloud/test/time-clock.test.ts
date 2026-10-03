@@ -1,125 +1,13 @@
-import { env, SELF } from "cloudflare:test";
+import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { TimeClockEnv } from "../src/time-clock";
-import worker from "../src/worker";
-
-const workerFetch = worker.fetch as (
-  request: Request,
-  env: TimeClockEnv,
-  ctx: ExecutionContext,
-) => Promise<Response>;
-const accessContext = {
-  access: {
-    aud: "test-audience",
-    getIdentity: async () => ({ email: "developer@example.test" }),
-  },
-} as ExecutionContext;
-
-function dashboardFetch(path: string, init?: RequestInit): Promise<Response> {
-  return workerFetch(
-    new Request(`https://example.test${path}`, init),
-    env as unknown as TimeClockEnv,
-    accessContext,
-  );
-}
-
-async function signedDeviceHeaders(
-  path: string,
-  body: string,
-  deviceId: string,
-  deviceSecret: string,
-) {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(body),
-  );
-  const bodyHash = Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(deviceSecret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode([timestamp, "POST", path, bodyHash].join("\n")),
-  );
-  const signatureHex = Array.from(new Uint8Array(signature), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-  return {
-    "content-type": "application/json",
-    "x-time-switch-device": deviceId,
-    "x-time-switch-signature": `v1=${signatureHex}`,
-    "x-time-switch-timestamp": timestamp,
-  };
-}
-
-async function request<T>(
-  path: string,
-  init?: RequestInit,
-): Promise<{ status: number; body: T }> {
-  const headers = new Headers(init?.headers);
-  if (init?.body) headers.set("content-type", "application/json");
-  const response = await dashboardFetch(path, { ...init, headers });
-  return { status: response.status, body: (await response.json()) as T };
-}
-
-async function createCompany(name = "Northstar") {
-  return request<{ data: { id: string; name: string } }>("/api/v1/companies", {
-    method: "POST",
-    body: JSON.stringify({ name, color: "#62e6a7", logoUrl: "" }),
-  });
-}
-
-async function provisionDevice(name = "Desk panel") {
-  const created = await request<{
-    data: { device: { id: string }; setupToken: string };
-  }>("/api/v1/devices", {
-    method: "POST",
-    body: JSON.stringify({ name }),
-  });
-  const provisioned = await SELF.fetch(
-    "https://example.test/device/v1/provision",
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        deviceId: created.body.data.device.id,
-        setupToken: created.body.data.setupToken,
-        firmwareVersion: "test-1.0.0",
-      }),
-    },
-  );
-  const body = (await provisioned.json()) as {
-    data: { deviceId: string; secret: string };
-  };
-  return body.data;
-}
-
-async function deviceFetch<T>(
-  path: string,
-  payload: unknown,
-  device: { deviceId: string; secret: string },
-): Promise<{ status: number; body: T }> {
-  const body = JSON.stringify(payload);
-  const response = await SELF.fetch(`https://example.test${path}`, {
-    method: "POST",
-    headers: await signedDeviceHeaders(
-      path,
-      body,
-      device.deviceId,
-      device.secret,
-    ),
-    body,
-  });
-  return { status: response.status, body: (await response.json()) as T };
-}
+import {
+  dashboardFetch,
+  signedDeviceHeaders,
+  request,
+  createCompany,
+  provisionDevice,
+  deviceFetch,
+} from "./helpers";
 
 describe("time clock API", () => {
   it("verifies device authentication and migrated storage through health", async () => {

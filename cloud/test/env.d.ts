@@ -1,5 +1,10 @@
-import type { TimeClockEnv } from "../src/time-clock";
+import type { D1Migration } from "cloudflare:test";
+import type { Env as WorkerEnv } from "../src/env";
 
-declare module "cloudflare:workers" {
-  interface ProvidedEnv extends TimeClockEnv {}
+declare global {
+  namespace Cloudflare {
+    interface Env extends WorkerEnv {
+      TEST_MIGRATIONS: D1Migration[];
+    }
+  }
 }

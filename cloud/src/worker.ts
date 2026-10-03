@@ -1,5 +1,9 @@
 import { Hono } from "hono";
-import { requireDashboardAccess } from "./lib/cloudflare-access";
+import { companyRoutes } from "./companies/routes";
+import { deviceApiRoutes } from "./devices/api";
+import { deviceRoutes } from "./devices/routes";
+import type { AppEnv, Env } from "./env";
+import { requireAccess } from "./lib/cloudflare-access";
 import { ApiError, errorResponse } from "./lib/http";
 import {
   LOGO_PATH_PREFIX,
@@ -8,7 +12,12 @@ import {
   serveLogo,
   uploadLogo,
 } from "./lib/logos";
-import { TimeClock, type TimeClockEnv } from "./time-clock";
+import { normalizeError } from "./lib/normalize-error";
+import { LIVE_PATH, liveRoutes } from "./live/routes";
+import { reportRoutes } from "./reports/routes";
+import { retrievalRoutes } from "./retrievals/routes";
+import { sessionRoutes } from "./sessions/routes";
+import { TimeClock } from "./time-clock";
 
 export { TimeClock };
 
@@ -42,10 +51,6 @@ function withResponseHeaders(
   return result;
 }
 
-function clock(env: TimeClockEnv): DurableObjectStub<TimeClock> {
-  return env.TIME_CLOCK.getByName("primary");
-}
-
 function routeLabel(path: string): string {
   return path.replace(
     /\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=\/|$)/gi,
@@ -53,16 +58,15 @@ function routeLabel(path: string): string {
   );
 }
 
-type HonoEnv = { Bindings: TimeClockEnv };
-const app = new Hono<HonoEnv>();
+const app = new Hono<AppEnv>();
 
-app.all("/device/*", async (context) => {
-  const request = context.req.raw;
-  if (request.method !== "POST") {
+app.use("/device/*", async (context, next) => {
+  if (context.req.method !== "POST") {
     throw new ApiError(405, "method_not_allowed", "Method not allowed.");
   }
-  return clock(context.env).fetch(request);
+  await next();
 });
+app.route("/", deviceApiRoutes);
 
 app.get(`${LOGO_PATH_PREFIX}:key`, (context) =>
   serveLogo(context.env.LOGOS, context.req.param("key")),
@@ -74,17 +78,29 @@ app.post("/api/v1/logos", (context) =>
 app.delete("/api/v1/logos/:key", (context) =>
   deleteLogo(context.env.LOGOS, context.req.param("key")),
 );
-app.all("/api/*", (context) => clock(context.env).fetch(context.req.raw));
+app.route("/", liveRoutes);
+app.route("/", sessionRoutes);
+app.route("/", companyRoutes);
+app.route("/", reportRoutes);
+app.route("/", retrievalRoutes);
+app.route("/", deviceRoutes);
+app.all("/api/*", () => {
+  throw new ApiError(404, "not_found", "Route not found.");
+});
 app.all("*", (context) => context.env.ASSETS.fetch(context.req.raw));
 app.notFound(() =>
   errorResponse(new ApiError(404, "not_found", "Route not found.")),
 );
-app.onError((error) => errorResponse(error));
+app.onError((error) => errorResponse(normalizeError(error)));
+
+function serviceMayAccess(request: Request, path: string): boolean {
+  return request.method === "GET" && path === LIVE_PATH;
+}
 
 export default {
   async fetch(
     request: Request,
-    env: TimeClockEnv,
+    env: Env,
     ctx: ExecutionContext,
   ): Promise<Response> {
     const startedAt = Date.now();
@@ -93,8 +109,17 @@ export default {
     const versionId = env.CF_VERSION_METADATA?.id ?? "local";
     let response: Response;
     try {
-      if (!path.startsWith("/device/"))
-        await requireDashboardAccess(request, env, ctx);
+      if (
+        !path.startsWith("/device/") &&
+        (await requireAccess(request, env, ctx)) === "service" &&
+        !serviceMayAccess(request, path)
+      ) {
+        throw new ApiError(
+          403,
+          "service_token_read_only",
+          "Service tokens may only read the live event stream.",
+        );
+      }
       response = await app.fetch(request, env);
     } catch (error) {
       response = errorResponse(error);
@@ -135,4 +160,4 @@ export default {
     );
     return result;
   },
-} satisfies ExportedHandler<TimeClockEnv>;
+} satisfies ExportedHandler<Env>;
