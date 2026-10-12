@@ -27,6 +27,7 @@
     {
       "binding": "DB",
       "database_name": "time-switch",
+      "database_id": "1babc514-807f-498f-a9c5-c9d9ebef2fe3",
       "migrations_dir": "drizzle",
     },
   ],
