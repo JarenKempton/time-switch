@@ -1,11 +1,11 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { TimeClockEnv } from "../src/time-clock";
+import type { Env } from "../src/env";
 import worker from "../src/worker";
 
 const workerFetch = worker.fetch as (
   request: Request,
-  env: TimeClockEnv,
+  env: Env,
   ctx: ExecutionContext,
 ) => Promise<Response>;
 const accessContext = {
@@ -18,7 +18,7 @@ const accessContext = {
 function request(path: string, init?: RequestInit): Promise<Response> {
   return workerFetch(
     new Request(`https://example.test${path}`, init),
-    env as unknown as TimeClockEnv,
+    env as unknown as Env,
     accessContext,
   );
 }

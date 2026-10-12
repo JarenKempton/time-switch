@@ -36,6 +36,13 @@
       "when": 1789679249400,
       "tag": "0004_pay_periods_start_stop",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1791006012819,
+      "tag": "0005_one_open_session",
+      "breakpoints": true
     }
   ]
 }

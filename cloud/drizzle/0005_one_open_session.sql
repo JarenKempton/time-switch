@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX `idx_hour_retrievals_company_period_start` ON `hour_retrievals` (`company_id`,`period_start`);--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_sessions_one_open` ON `sessions` (("ended_at" IS NULL)) WHERE "sessions"."ended_at" IS NULL;

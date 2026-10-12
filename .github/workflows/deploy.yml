@@ -50,13 +50,19 @@ jobs:
       - name: Build Worker and web assets
         run: pnpm build
         working-directory: cloud
+      - name: Apply D1 migrations
+        run: pnpm exec wrangler d1 migrations apply DB --remote
+        working-directory: cloud
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Deploy Worker
         run: pnpm exec wrangler deploy --strict --message "$DEPLOY_SHA"
         working-directory: cloud
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Verify deployed Durable Object
+      - name: Verify deployed Worker and D1
         run: pnpm smoke
         working-directory: cloud
         env:
