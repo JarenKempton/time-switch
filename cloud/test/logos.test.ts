@@ -32,7 +32,7 @@ describe("company logos in R2", () => {
     const form = new FormData();
     form.append(
       "file",
-      new File([PNG_HEADER], "Sales AI.png", { type: "image/png" }),
+      new File([PNG_HEADER], "Acme.png", { type: "image/png" }),
     );
     const uploaded = await request("/api/v1/logos", {
       method: "POST",
@@ -42,7 +42,7 @@ describe("company logos in R2", () => {
     const { data: logo } = (await uploaded.json()) as {
       data: { key: string; url: string; size: number; contentType: string };
     };
-    expect(logo.key).toMatch(/^sales-ai-[0-9a-f]{8}\.png$/);
+    expect(logo.key).toMatch(/^acme-[0-9a-f]{8}\.png$/);
     expect(logo.url).toBe(`/logos/${logo.key}`);
     expect(logo.contentType).toBe("image/png");
 
@@ -60,7 +60,7 @@ describe("company logos in R2", () => {
     const company = await request("/api/v1/companies", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "SalesAi", logoUrl: logo.url }),
+      body: JSON.stringify({ name: "Acme", logoUrl: logo.url }),
     });
     expect(company.status).toBe(201);
     const { data: saved } = (await company.json()) as {
