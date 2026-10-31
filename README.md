@@ -1,6 +1,6 @@
 # Time Switch
 
-A three-position desk switch that starts and stops work sessions. Left and right select a company; middle stops the active session. The dashboard updates live and keeps a history of hours and pay periods.
+A three-position desk switch that starts and stops work sessions. Left and right each select a client or project (a "company" in the dashboard); middle stops the active session. The dashboard updates live and keeps a history of hours and pay periods.
 
 The fingerprint authenticator is a separate device and is not part of this repository.
 
@@ -106,6 +106,8 @@ pnpm install --frozen-lockfile
 cp .dev.vars.example .dev.vars
 pnpm dev --host 0.0.0.0
 ```
+
+To reach the dev server through another hostname, such as a Tailscale MagicDNS name, list it in `DEV_ALLOWED_HOSTS` (comma-separated, a leading dot allows subdomains): `DEV_ALLOWED_HOSTS=.your-tailnet.ts.net pnpm dev --host 0.0.0.0`.
 
 No local secret is required. Device credentials are created during provisioning and remain out of source control.
 
