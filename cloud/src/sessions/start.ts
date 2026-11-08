@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import type { Database } from "../db/client";
 import { sessions, type Session } from "../db/schema";
 import { ApiError } from "../lib/http";
@@ -50,12 +50,17 @@ async function attemptStart(
   const existing = await db
     .select()
     .from(sessions)
-    .where(eq(sessions.id, input.id))
+    .where(
+      or(eq(sessions.id, input.id), eq(sessions.deviceSessionId, input.id)),
+    )
     .get();
   if (existing) {
+    // A replayed start for an adopted session keeps the adopting session's
+    // own start time, so only the company has to match.
+    const adopted = existing.id !== input.id;
     if (
       existing.companyId !== input.companyId ||
-      existing.startedAt.getTime() !== input.startedAt.getTime()
+      (!adopted && existing.startedAt.getTime() !== input.startedAt.getTime())
     ) {
       throw new ApiError(
         409,
@@ -85,12 +90,27 @@ async function attemptStart(
   }
 
   const now = new Date();
+  if (active && options.closeActiveAt && active.companyId === input.companyId) {
+    // The switch was flipped to the company that is already running (say it
+    // was started from the dashboard first). Keep that session untouched and
+    // remember the switch's ID for it, so the switch's later stop ends it.
+    const [adopted] = await db
+      .update(sessions)
+      .set({ deviceSessionId: input.id, updatedAt: now })
+      .where(and(eq(sessions.id, active.id), isNull(sessions.endedAt)))
+      .returning();
+    // Stopped in the meantime: start over and take the normal path.
+    if (!adopted) return attemptStart(db, input, options);
+    return { session: { ...adopted, company }, created: false };
+  }
+
   const session: Session = {
     id: input.id,
     companyId: input.companyId,
     startedAt: input.startedAt,
     endedAt: null,
     note: null,
+    deviceSessionId: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -99,8 +119,8 @@ async function attemptStart(
     return { session: { ...session, company }, created: true };
   }
 
-  // A device start means the physical switch moved, so it implicitly ends
-  // whatever was running at the flip moment rather than refusing with a 409
+  // A device start for another company means the physical switch moved, so it
+  // implicitly ends whatever was running at the flip moment rather than refusing with a 409
   // that the firmware would drop as a permanent rejection.
   const endedAt =
     options.closeActiveAt.getTime() >= active.startedAt.getTime()

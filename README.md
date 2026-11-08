@@ -96,6 +96,8 @@ reboot
 4. Flip to the middle. That session should stop.
 5. Flip right. A session for the right company should start.
 
+If a session for a company is already running, from the dashboard or the bar, flipping the switch to that company leaves it running, and flipping back to the middle stops it. Flipping to a different company stops the running session and starts the new one.
+
 If Wi-Fi is unavailable, the controller retains up to 16 pending changes and retries them after reconnecting.
 
 ## Run the dashboard locally
