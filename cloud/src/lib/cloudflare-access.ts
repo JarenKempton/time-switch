@@ -17,9 +17,11 @@ function getAccessKeySet(teamDomain: string) {
 /**
  * A person signed in through Access, or a machine presenting an Access service
  * token (CF-Access-Client-Id/Secret). Access exchanges the token for a JWT with
- * a `common_name` and no email.
+ * a `common_name` (the token's Client ID) and no email.
  */
-export type AccessPrincipal = "user" | "service";
+export type AccessPrincipal =
+  | { kind: "user" }
+  | { kind: "service"; clientId: string };
 
 export async function requireAccess(
   request: Request,
@@ -37,7 +39,7 @@ export async function requireAccess(
         "Cloudflare Access did not provide an authenticated identity.",
       );
     }
-    return "user";
+    return { kind: "user" };
   }
 
   // A self-hosted Access application in front of a custom domain forwards a
@@ -80,9 +82,9 @@ export async function requireAccess(
       issuer: teamDomain,
     });
     if (payload.type !== "app") throw new Error("Not an application token");
-    if (typeof payload.email === "string") return "user";
+    if (typeof payload.email === "string") return { kind: "user" };
     if (typeof payload.common_name === "string" && payload.common_name)
-      return "service";
+      return { kind: "service", clientId: payload.common_name };
     throw new Error("Authenticated claims are missing");
   } catch {
     throw new ApiError(
