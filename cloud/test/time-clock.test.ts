@@ -481,6 +481,67 @@ describe("time clock API", () => {
     expect(alphaRow?.endedAt).toBe("2026-09-12T16:00:00.000Z");
   });
 
+  it("adopts a running session when the switch is flipped to the same company", async () => {
+    const device = await provisionDevice("Bench panel");
+    const alpha = await createCompany("Alpha");
+    const companyId = alpha.body.data.id;
+    const dashboardId = "018f47a0-0000-4c5d-9e6f-0000000000d1";
+    const switchId = "018f47a0-0000-4c5d-9e6f-0000000000e1";
+
+    await request("/api/v1/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        id: dashboardId,
+        companyId,
+        startedAt: "2026-09-12T15:00:00.000Z",
+      }),
+    });
+
+    // Started from the bar first, then the switch catches up. Nothing changes:
+    // no stop, no new session.
+    const flip = {
+      id: switchId,
+      companyId,
+      startedAt: "2026-09-12T15:20:00.000Z",
+    };
+    const adopted = await deviceFetch<{
+      data: { id: string; startedAt: string };
+    }>("/device/v1/sessions/start", flip, device);
+    expect(adopted.status).toBe(200);
+    expect(adopted.body.data).toMatchObject({
+      id: dashboardId,
+      startedAt: "2026-09-12T15:00:00.000Z",
+    });
+
+    // An offline replay of the same flip is still a no-op.
+    const replay = await deviceFetch("/device/v1/sessions/start", flip, device);
+    expect(replay.status).toBe(200);
+
+    const sessions = await request<{
+      data: Array<{ id: string; endedAt: string | null }>;
+    }>("/api/v1/sessions");
+    expect(sessions.body.data.map((s) => s.id)).toEqual([dashboardId]);
+    expect(sessions.body.data[0].endedAt).toBeNull();
+
+    // Flipping the switch off stops the adopted session.
+    const stop = await deviceFetch<{
+      data: { session: { id: string; endedAt: string } };
+    }>(
+      `/device/v1/sessions/${switchId}/stop`,
+      { endedAt: "2026-09-12T17:00:00.000Z" },
+      device,
+    );
+    expect(stop.status).toBe(200);
+    expect(stop.body.data.session).toMatchObject({
+      id: dashboardId,
+      endedAt: "2026-09-12T17:00:00.000Z",
+    });
+    const status = await request<{
+      data: { activeSession: { id: string } | null };
+    }>("/api/v1/status");
+    expect(status.body.data.activeSession).toBeNull();
+  });
+
   it("calculates totals clipped to the requested reporting range", async () => {
     const company = await createCompany();
     const companyId = company.body.data.id;

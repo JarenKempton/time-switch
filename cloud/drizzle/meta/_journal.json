@@ -43,6 +43,13 @@
       "when": 1791006012819,
       "tag": "0005_one_open_session",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794154685364,
+      "tag": "0006_device_session_alias",
+      "breakpoints": true
     }
   ]
 }

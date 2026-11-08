@@ -31,10 +31,15 @@ export const sessions = sqliteTable(
     startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
     endedAt: integer("ended_at", { mode: "timestamp_ms" }),
     note: text("note"),
+    // The switch's own ID for a session it adopted rather than started: set
+    // when the switch is flipped to the company that is already running, so
+    // the switch's later stop for that ID ends this session.
+    deviceSessionId: text("device_session_id"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [
+    uniqueIndex("idx_sessions_device_session_id").on(table.deviceSessionId),
     index("idx_sessions_started_at").on(table.startedAt),
     index("idx_sessions_company_started_at").on(
       table.companyId,

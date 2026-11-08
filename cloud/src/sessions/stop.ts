@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import type { Database } from "../db/client";
 import { sessions } from "../db/schema";
 import { ApiError } from "../lib/http";
@@ -15,6 +15,7 @@ export interface StopResult {
  * stopped session is idempotent and keeps the first recorded end, so a device
  * replaying a queued stop never poisons its offline queue. With
  * `tolerateMissing`, a stop for a session that no longer exists returns null.
+ * The ID may also be the switch's ID for a session it adopted.
  */
 export async function stopSession(
   db: Database,
@@ -25,7 +26,7 @@ export async function stopSession(
   const current = await db
     .select()
     .from(sessions)
-    .where(eq(sessions.id, id))
+    .where(or(eq(sessions.id, id), eq(sessions.deviceSessionId, id)))
     .get();
   if (!current) {
     if (options.tolerateMissing) return null;
@@ -42,7 +43,7 @@ export async function stopSession(
     );
   }
 
-  const stillOpen = and(eq(sessions.id, id), isNull(sessions.endedAt));
+  const stillOpen = and(eq(sessions.id, current.id), isNull(sessions.endedAt));
   if (endedAt.getTime() - current.startedAt.getTime() < MIN_SESSION_MS) {
     const deleted = await db.delete(sessions).where(stillOpen).returning();
     if (!deleted.length) return stopSession(db, id, endedAt, options);
