@@ -13,7 +13,8 @@ import {
   uploadLogo,
 } from "./lib/logos";
 import { normalizeError } from "./lib/normalize-error";
-import { LIVE_PATH, liveRoutes } from "./live/routes";
+import { serviceAccess } from "./lib/service-access";
+import { liveRoutes } from "./live/routes";
 import { reportRoutes } from "./reports/routes";
 import { retrievalRoutes } from "./retrievals/routes";
 import { sessionRoutes } from "./sessions/routes";
@@ -93,10 +94,6 @@ app.notFound(() =>
 );
 app.onError((error) => errorResponse(normalizeError(error)));
 
-function serviceMayAccess(request: Request, path: string): boolean {
-  return request.method === "GET" && path === LIVE_PATH;
-}
-
 export default {
   async fetch(
     request: Request,
@@ -109,16 +106,25 @@ export default {
     const versionId = env.CF_VERSION_METADATA?.id ?? "local";
     let response: Response;
     try {
-      if (
-        !path.startsWith("/device/") &&
-        (await requireAccess(request, env, ctx)) === "service" &&
-        !serviceMayAccess(request, path)
-      ) {
-        throw new ApiError(
-          403,
-          "service_token_read_only",
-          "Service tokens may only read the live event stream.",
-        );
+      if (!path.startsWith("/device/")) {
+        const principal = await requireAccess(request, env, ctx);
+        if (principal.kind === "service") {
+          const access = serviceAccess(request, path, principal.clientId, env);
+          if (access === "read_only") {
+            throw new ApiError(
+              403,
+              "service_token_read_only",
+              "Service tokens may only read the live event stream.",
+            );
+          }
+          if (access === "forbidden") {
+            throw new ApiError(
+              403,
+              "service_token_forbidden",
+              "This service token may only read status and start or stop sessions.",
+            );
+          }
+        }
       }
       response = await app.fetch(request, env);
     } catch (error) {

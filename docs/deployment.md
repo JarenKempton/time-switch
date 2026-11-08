@@ -18,7 +18,18 @@ The Worker deliberately fails closed when Cloudflare Access identity is absent. 
 Create two self-hosted Access applications or path rules, in this order of specificity:
 
 1. `time.jarenkempton.dev/device/*` — Bypass. This narrowly exposes only the device namespace. Provisioning requires a short-lived, one-time token and subsequent requests require that device's HMAC signature.
-2. `time.jarenkempton.dev` — Allow only Jaren's identity. Leaving the path empty protects the hostname root and every path, including the dashboard, browser API, CSV exports, and live WebSocket. Add a Service Auth rule for each machine client's Access service token; the Worker lets service tokens open only the read-only `/api/v1/live` event stream and returns 403 everywhere else.
+2. `time.jarenkempton.dev` — Allow only Jaren's identity. Leaving the path empty protects the hostname root and every path, including the dashboard, browser API, CSV exports, and live WebSocket. Add a Service Auth rule for each machine client's Access service token; the Worker lets service tokens open only the read-only `/api/v1/live` event stream and returns 403 everywhere else. The one exception is the desktop token named by the `BAR_SERVICE_TOKEN` Worker secret (see below).
+
+### Desktop service token
+
+A desktop client such as a status-bar widget can use one dedicated Access service token to read status and totals and to start or stop sessions. Create the token, add it to the dashboard application's Service Auth rule, and store its Client ID (`<id>.access`) as a Worker secret so it stays out of the repository:
+
+```sh
+cd cloud
+pnpm exec wrangler secret put BAR_SERVICE_TOKEN
+```
+
+That token may `GET` `/api/v1/status`, `/api/v1/companies`, `/api/v1/sessions`, `/api/v1/summary`, `/api/v1/companies/:id/period`, and `/logos/*`, and may `POST` `/api/v1/sessions` and `/api/v1/sessions/:id/stop`. Everything else, including editing or deleting sessions, companies, devices, logos, pay periods, and exports, returns 403. Other service tokens are unaffected. Without the secret, no service token gains these permissions.
 
 Cloudflare applies the most specific matching application path. Do not add a wider bypass rule and do not place device endpoints under `/api/*`.
 
