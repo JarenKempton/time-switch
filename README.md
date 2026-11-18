@@ -98,6 +98,8 @@ reboot
 
 If a session for a company is already running, from the dashboard or the bar, flipping the switch to that company leaves it running, and flipping back to the middle stops it. Flipping to a different company stops the running session and starts the new one.
 
+A flip corrected within a minute is ignored: flipping to the middle, or to the other company, and back within a minute keeps the original session running instead of starting a new one.
+
 If Wi-Fi is unavailable, the controller retains up to 16 pending changes and retries them after reconnecting.
 
 ## Run the dashboard locally
