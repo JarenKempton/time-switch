@@ -542,6 +542,129 @@ describe("time clock API", () => {
     expect(status.body.data.activeSession).toBeNull();
   });
 
+  it("resumes a session when the switch is flipped off and back within a minute", async () => {
+    const device = await provisionDevice("Bench panel");
+    const alpha = await createCompany("Alpha");
+    const companyId = alpha.body.data.id;
+    const first = "018f47a0-0000-4c5d-9e6f-0000000000f1";
+    const second = "018f47a0-0000-4c5d-9e6f-0000000000f2";
+
+    await deviceFetch(
+      "/device/v1/sessions/start",
+      { id: first, companyId, startedAt: "2026-09-12T15:00:00.000Z" },
+      device,
+    );
+    await deviceFetch(
+      `/device/v1/sessions/${first}/stop`,
+      { endedAt: "2026-09-12T17:00:00.000Z" },
+      device,
+    );
+    const flipBack = {
+      id: second,
+      companyId,
+      startedAt: "2026-09-12T17:00:40.000Z",
+    };
+    const resumed = await deviceFetch<{
+      data: { id: string; endedAt: string | null };
+    }>("/device/v1/sessions/start", flipBack, device);
+    expect(resumed.status).toBe(200);
+    expect(resumed.body.data).toMatchObject({ id: first, endedAt: null });
+
+    const replay = await deviceFetch(
+      "/device/v1/sessions/start",
+      flipBack,
+      device,
+    );
+    expect(replay.status).toBe(200);
+
+    const sessions = await request<{
+      data: Array<{ id: string; endedAt: string | null }>;
+    }>("/api/v1/sessions");
+    expect(sessions.body.data).toMatchObject([{ id: first, endedAt: null }]);
+
+    const stop = await deviceFetch<{
+      data: { session: { id: string; startedAt: string; endedAt: string } };
+    }>(
+      `/device/v1/sessions/${second}/stop`,
+      { endedAt: "2026-09-12T18:00:00.000Z" },
+      device,
+    );
+    expect(stop.body.data.session).toMatchObject({
+      id: first,
+      startedAt: "2026-09-12T15:00:00.000Z",
+      endedAt: "2026-09-12T18:00:00.000Z",
+    });
+  });
+
+  it("starts a new session when the switch is flipped back after a minute", async () => {
+    const device = await provisionDevice("Bench panel");
+    const alpha = await createCompany("Alpha");
+    const companyId = alpha.body.data.id;
+    const first = "018f47a0-0000-4c5d-9e6f-0000000000f3";
+    const second = "018f47a0-0000-4c5d-9e6f-0000000000f4";
+
+    await deviceFetch(
+      "/device/v1/sessions/start",
+      { id: first, companyId, startedAt: "2026-09-12T15:00:00.000Z" },
+      device,
+    );
+    await deviceFetch(
+      `/device/v1/sessions/${first}/stop`,
+      { endedAt: "2026-09-12T17:00:00.000Z" },
+      device,
+    );
+    const started = await deviceFetch<{ data: { id: string } }>(
+      "/device/v1/sessions/start",
+      { id: second, companyId, startedAt: "2026-09-12T17:01:00.000Z" },
+      device,
+    );
+    expect(started.status).toBe(201);
+    expect(started.body.data.id).toBe(second);
+  });
+
+  it("drops a brief detour to another company and resumes the first", async () => {
+    const device = await provisionDevice("Bench panel");
+    const alpha = await createCompany("Alpha");
+    const beta = await createCompany("Beta");
+    const first = "018f47a0-0000-4c5d-9e6f-0000000000f5";
+    const detour = "018f47a0-0000-4c5d-9e6f-0000000000f6";
+    const back = "018f47a0-0000-4c5d-9e6f-0000000000f7";
+
+    await deviceFetch(
+      "/device/v1/sessions/start",
+      {
+        id: first,
+        companyId: alpha.body.data.id,
+        startedAt: "2026-09-12T15:00:00.000Z",
+      },
+      device,
+    );
+    await deviceFetch(
+      "/device/v1/sessions/start",
+      {
+        id: detour,
+        companyId: beta.body.data.id,
+        startedAt: "2026-09-12T17:00:00.000Z",
+      },
+      device,
+    );
+    const resumed = await deviceFetch<{ data: { id: string } }>(
+      "/device/v1/sessions/start",
+      {
+        id: back,
+        companyId: alpha.body.data.id,
+        startedAt: "2026-09-12T17:00:30.000Z",
+      },
+      device,
+    );
+    expect(resumed.body.data.id).toBe(first);
+
+    const sessions = await request<{
+      data: Array<{ id: string; endedAt: string | null }>;
+    }>("/api/v1/sessions");
+    expect(sessions.body.data).toMatchObject([{ id: first, endedAt: null }]);
+  });
+
   it("calculates totals clipped to the requested reporting range", async () => {
     const company = await createCompany();
     const companyId = company.body.data.id;

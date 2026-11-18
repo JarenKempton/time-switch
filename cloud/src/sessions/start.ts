@@ -1,9 +1,9 @@
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, or } from "drizzle-orm";
 import type { Database } from "../db/client";
 import { sessions, type Session } from "../db/schema";
 import { ApiError } from "../lib/http";
 import { violatesUnique } from "../lib/normalize-error";
-import { getCompany, type SessionWithCompany } from "./queries";
+import { getCompany, MIN_SESSION_MS, type SessionWithCompany } from "./queries";
 
 const MAX_ATTEMPTS = 3;
 
@@ -20,6 +20,8 @@ export interface StartOptions {
 export interface StartResult {
   session: SessionWithCompany;
   created: boolean;
+  resumed?: boolean;
+  discardedPrevious?: boolean;
   closedPrevious?: SessionWithCompany;
 }
 
@@ -76,12 +78,13 @@ async function attemptStart(
   if (!company || company.archived) {
     throw new ApiError(404, "company_not_found", "Active company not found.");
   }
-  const active = await db
+  let active = await db
     .select()
     .from(sessions)
     .where(isNull(sessions.endedAt))
     .get();
-  if (active && !options.closeActiveAt) {
+  const flipAt = options.closeActiveAt;
+  if (active && !flipAt) {
     throw new ApiError(
       409,
       "session_already_active",
@@ -90,7 +93,7 @@ async function attemptStart(
   }
 
   const now = new Date();
-  if (active && options.closeActiveAt && active.companyId === input.companyId) {
+  if (active && flipAt && active.companyId === input.companyId) {
     // The switch was flipped to the company that is already running (say it
     // was started from the dashboard first). Keep that session untouched and
     // remember the switch's ID for it, so the switch's later stop ends it.
@@ -104,6 +107,34 @@ async function attemptStart(
     return { session: { ...adopted, company }, created: false };
   }
 
+  let discardedPrevious = false;
+  if (active && flipAt && isBrief(active, flipAt)) {
+    const deleted = await db
+      .delete(sessions)
+      .where(and(eq(sessions.id, active.id), isNull(sessions.endedAt)))
+      .returning();
+    discardedPrevious = deleted.length > 0;
+    active = undefined;
+  }
+
+  if (flipAt && !active) {
+    const resumable = await endedJustBefore(db, input);
+    if (resumable) {
+      const [resumed] = await db
+        .update(sessions)
+        .set({ endedAt: null, deviceSessionId: input.id, updatedAt: now })
+        .where(and(eq(sessions.id, resumable.id), isNotNull(sessions.endedAt)))
+        .returning();
+      if (!resumed) return attemptStart(db, input, options);
+      return {
+        session: { ...resumed, company },
+        created: false,
+        resumed: true,
+        discardedPrevious,
+      };
+    }
+  }
+
   const session: Session = {
     id: input.id,
     companyId: input.companyId,
@@ -114,18 +145,20 @@ async function attemptStart(
     createdAt: now,
     updatedAt: now,
   };
-  if (!active || !options.closeActiveAt) {
+  if (!active || !flipAt) {
     await db.insert(sessions).values(session);
-    return { session: { ...session, company }, created: true };
+    return {
+      session: { ...session, company },
+      created: true,
+      discardedPrevious,
+    };
   }
 
   // A device start for another company means the physical switch moved, so it
   // implicitly ends whatever was running at the flip moment rather than refusing with a 409
   // that the firmware would drop as a permanent rejection.
   const endedAt =
-    options.closeActiveAt.getTime() >= active.startedAt.getTime()
-      ? options.closeActiveAt
-      : active.startedAt;
+    flipAt.getTime() >= active.startedAt.getTime() ? flipAt : active.startedAt;
   const [closed] = await db.batch([
     db
       .update(sessions)
@@ -143,4 +176,23 @@ async function attemptStart(
       company: (await getCompany(db, closedSession.companyId))!,
     },
   };
+}
+
+function isBrief(session: Session, endedAt: Date): boolean {
+  return endedAt.getTime() - session.startedAt.getTime() < MIN_SESSION_MS;
+}
+
+async function endedJustBefore(
+  db: Database,
+  input: StartInput,
+): Promise<Session | undefined> {
+  const last = await db
+    .select()
+    .from(sessions)
+    .where(isNotNull(sessions.endedAt))
+    .orderBy(desc(sessions.endedAt))
+    .get();
+  if (!last || last.companyId !== input.companyId) return undefined;
+  const gap = input.startedAt.getTime() - last.endedAt!.getTime();
+  return gap >= 0 && gap < MIN_SESSION_MS ? last : undefined;
 }

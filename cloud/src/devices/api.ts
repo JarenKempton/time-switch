@@ -121,6 +121,10 @@ export const deviceApiRoutes = new Hono<AppEnv>()
         { id: input.id, companyId: input.companyId, startedAt },
         { closeActiveAt: startedAt },
       );
+      if (result.discardedPrevious)
+        await publish(context.env, db, "session.deleted");
+      if (result.resumed)
+        await publish(context.env, db, "session.updated", result.session);
       if (result.closedPrevious)
         await publish(
           context.env,
